@@ -44,20 +44,51 @@ export class KalshiTransformer {
   };
 
   // Generate appropriate image based on category and title
-  private getImageUrl(category: string, title: string): string {
-    // In production, you'd have a mapping to actual images
-    // For now, use placeholder images with different seeds
-    const seed = title.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  private async getImageUrl(category: string, title: string): Promise<string> {
+    // Extract keywords from title
+    const keywords = this.extractKeywords(title);
     
-    const imageCategories: Record<string, string> = {
-      'sports': `https://picsum.photos/400/600?random=${seed}&blur=0`,
-      'music': `https://picsum.photos/400/600?random=${seed + 1000}&blur=0`,
-      'movies': `https://picsum.photos/400/600?random=${seed + 2000}&blur=0`,
-      'viral': `https://picsum.photos/400/600?random=${seed + 3000}&blur=0`,
-      'other': `https://picsum.photos/400/600?random=${seed + 4000}&blur=0`,
+    // Use Unsplash API or similar
+    try {
+      const response = await fetch(
+        `https://api.unsplash.com/search/photos?query=${encodeURIComponent(keywords)}&client_id=${process.env.EXPO_PUBLIC_UNSPLASH_API_KEY}`
+      );
+      const data = await response.json();
+      return data.results[0]?.urls?.regular || this.getFallbackImage(category);
+    } catch {
+      return this.getFallbackImage(category);
+    }
+  }
+  
+  private extractKeywords(title: string): string {
+    // Extract celebrity names, events, etc.
+    const patterns = {
+      celebrity: /Taylor Swift|Drake|Beyonce|Kanye West|Ariana Grande|Billie Eilish|The Weeknd|Post Malone|Travis Scott|Doja Cat/gi,
+      sports: /NFL|NBA|MLB|NHL|Super Bowl|World Cup|Championship|Playoffs|Finals/gi,
+      movies: /Oscar|Academy Award|Marvel|Disney|Netflix|HBO|Streaming|Box Office/gi,
+      politics: /Election|President|Congress|Senate|Democrat|Republican|Biden|Trump/gi,
+      tech: /Apple|Google|Microsoft|Tesla|SpaceX|Meta|Amazon|Netflix/gi,
     };
     
-    return imageCategories[category] || imageCategories.other;
+    for (const [key, pattern] of Object.entries(patterns)) {
+      const match = title.match(pattern);
+      if (match) return match[0];
+    }
+    
+    return title.split(" ").slice(0, 3).join(" ");
+  }
+  
+  private getFallbackImage(category: string): string {
+    // Fallback to category-based images if API fails
+    const fallbackImages = {
+      sports: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=600&fit=crop",
+      music: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&h=600&fit=crop",
+      movies: "https://images.unsplash.com/photo-1489599835382-957593cb7c43?w=800&h=600&fit=crop",
+      viral: "https://images.unsplash.com/photo-1611224923853-80b023f02d71?w=800&h=600&fit=crop",
+      other: "https://images.unsplash.com/photo-1551434678-e076c223a692?w=800&h=600&fit=crop",
+    };
+    
+    return fallbackImages[category] || fallbackImages.other;
   }
 
   private mapCategory(kalshiCategory?: string): AppPrediction['category'] {
@@ -95,14 +126,14 @@ export class KalshiTransformer {
     }
   }
 
-  transformMarket(market: KalshiMarket): AppPrediction {
+  transformMarket(market: KalshiMarket): Promise<AppPrediction> {
     const category = this.mapCategory(market.category);
     
     return {
       id: market.ticker,
       title: market.title,
       category,
-      imageUri: this.getImageUrl(category, market.title),
+      imageUri: await this.getImageUrl(category, market.title),
       currentOdds: { // Odds are in percentage format (0-100)
         yes: market.yes_bid || 50,
         no: market.no_bid || 50,
@@ -118,10 +149,12 @@ export class KalshiTransformer {
   }
 
   transformMarkets(markets: KalshiMarket[]): AppPrediction[] {
-    return markets
-      .filter(m => m.status === 'open')
-      .map(m => this.transformMarket(m))
-      .sort((a, b) => b.volume - a.volume);
+    const transformedMarkets = await Promise.all(markets
+      .filter(m => m.status === "open")
+      .map(async m => await this.transformMarket(m))
+    );
+    
+    return transformedMarkets.sort((a, b) => b.volume - a.volume);
   }
 }
 
