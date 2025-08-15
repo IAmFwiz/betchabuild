@@ -1,45 +1,60 @@
-import React, { useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, SafeAreaView, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, ScrollView, StyleSheet, SafeAreaView, TouchableOpacity, RefreshControl } from 'react-native';
 import { useKalshiStore } from '../../store/kalshiStore';
 import { MarketCard } from '../../components/features/MarketCard';
 import { tokens } from '../../theme/tokens';
 
 export default function TrendingScreen() {
-  const { trendingPredictions, loading, error, fetchTrending, fetchByCategory } = useKalshiStore();
-  const [refreshing, setRefreshing] = React.useState(false);
+  const { trendingPredictions, loading, fetchTrending } = useKalshiStore();
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    fetchTrending();
+    fetchTrending().catch(err => {
+      setError(err.message);
+      console.error('Trending fetch error:', err);
+    });
   }, []);
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
-    await fetchTrending();
-    setRefreshing(false);
+    try {
+      await fetchTrending();
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+      console.error('Trending refresh error:', err);
+    } finally {
+      setRefreshing(false);
+    }
   }, []);
 
-  const categories = ['all', 'sports', 'politics', 'finance', 'entertainment', 'music', 'general'];
-  const [selectedCategory, setSelectedCategory] = React.useState('all');
+  const categories = ['all', 'sports', 'music', 'movies', 'viral'];
+  const [selectedCategory, setSelectedCategory] = useState('all');
 
-  const handleCategorySelect = async (category: string) => {
-    setSelectedCategory(category);
-    if (category === 'all') {
-      await fetchTrending();
-    } else {
-      await fetchByCategory(category);
-    }
-  };
+  const filteredPredictions = selectedCategory === 'all' 
+    ? trendingPredictions 
+    : trendingPredictions.filter(p => p.category === selectedCategory);
 
-  if (loading && trendingPredictions.length === 0) {
+  if (error) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Trending</Text>
-          <Text style={styles.subtitle}>Most popular predictions right now</Text>
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={tokens.colors.blue} />
-          <Text style={styles.loadingText}>Loading trending predictions...</Text>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorIcon}>⚠️</Text>
+          <Text style={styles.errorText}>Failed to load trending</Text>
+          <Text style={styles.errorSubtext}>{error}</Text>
+          <TouchableOpacity 
+            style={styles.retryButton}
+            onPress={() => {
+              setError(null);
+              fetchTrending().catch(err => {
+                setError(err.message);
+                console.error('Trending retry error:', err);
+              });
+            }}
+          >
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -51,11 +66,11 @@ export default function TrendingScreen() {
         <Text style={styles.title}>Trending</Text>
         <Text style={styles.subtitle}>Most popular predictions right now</Text>
       </View>
-
+      
       <ScrollView 
         horizontal 
-        showsHorizontalScrollIndicator={false}
-        style={styles.categoryScroll}
+        showsHorizontalScrollIndicator={false} 
+        style={styles.categoryScroll} 
         contentContainerStyle={styles.categoryContainer}
       >
         {categories.map(category => (
@@ -65,7 +80,7 @@ export default function TrendingScreen() {
               styles.categoryPill,
               selectedCategory === category && styles.categoryPillActive
             ]}
-            onPress={() => handleCategorySelect(category)}
+            onPress={() => setSelectedCategory(category)}
           >
             <Text style={[
               styles.categoryText,
@@ -77,36 +92,29 @@ export default function TrendingScreen() {
         ))}
       </ScrollView>
 
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Error: {error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={fetchTrending}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      <ScrollView
+      <ScrollView 
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
+          <RefreshControl 
+            refreshing={refreshing} 
             onRefresh={onRefresh}
-            tintColor={tokens.colors.blue}
+            tintColor={tokens.colors.blue} 
           />
         }
+        style={styles.predictionsList}
       >
-        {trendingPredictions.map((prediction, index) => (
+        {filteredPredictions?.map((prediction, index) => (
           <MarketCard
-            key={prediction.id}
+            key={`${prediction.id}-${index}`}
             prediction={prediction}
             rank={index + 1}
           />
         ))}
-
-        {trendingPredictions.length === 0 && !loading && !error && (
+        
+        {filteredPredictions.length === 0 && !loading && (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No trending predictions found</Text>
-            <Text style={styles.emptySubtext}>Try selecting a different category</Text>
+            <Text style={styles.emptyIcon}>🎯</Text>
+            <Text style={styles.emptyText}>No trending predictions</Text>
+            <Text style={styles.emptySubtext}>Check back soon for new markets</Text>
           </View>
         )}
       </ScrollView>
@@ -124,12 +132,12 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   title: {
-    fontSize: 28,
-    fontWeight: '700',
+    fontSize: tokens.typography.sizes.xxxl,
+    fontWeight: tokens.typography.weights.bold,
     color: tokens.colors.color,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: tokens.typography.sizes.md,
     color: tokens.colors.color3,
     marginTop: 4,
   },
@@ -145,7 +153,7 @@ const styles = StyleSheet.create({
     backgroundColor: tokens.colors.surface,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: tokens.radius.pill,
     marginRight: 8,
   },
   categoryPillActive: {
@@ -153,56 +161,65 @@ const styles = StyleSheet.create({
   },
   categoryText: {
     color: tokens.colors.color2,
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: tokens.typography.sizes.sm,
+    fontWeight: tokens.typography.weights.semibold,
   },
   categoryTextActive: {
     color: tokens.colors.background,
   },
-  loadingContainer: {
+  predictionsList: {
+    flex: 1,
+  },
+  errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 40,
   },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: tokens.colors.color2,
-  },
-  errorContainer: {
-    padding: 20,
-    alignItems: 'center',
+  errorIcon: {
+    fontSize: 64,
+    marginBottom: 16,
   },
   errorText: {
     color: tokens.colors.error,
-    fontSize: 16,
+    fontSize: tokens.typography.sizes.xl,
+    fontWeight: tokens.typography.weights.bold,
+    marginBottom: 8,
     textAlign: 'center',
-    marginBottom: 16,
+  },
+  errorSubtext: {
+    color: tokens.colors.color3,
+    fontSize: tokens.typography.sizes.md,
+    marginBottom: 24,
+    textAlign: 'center',
   },
   retryButton: {
     backgroundColor: tokens.colors.blue,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: tokens.radius.pill,
   },
-  retryButtonText: {
+  retryText: {
     color: tokens.colors.background,
-    fontSize: 16,
-    fontWeight: '600',
+    fontWeight: tokens.typography.weights.bold,
   },
   emptyState: {
     padding: 40,
     alignItems: 'center',
   },
+  emptyIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
   emptyText: {
     color: tokens.colors.color3,
-    fontSize: 16,
-    marginBottom: 8,
+    fontSize: tokens.typography.sizes.md,
+    textAlign: 'center',
   },
   emptySubtext: {
     color: tokens.colors.color3,
-    fontSize: 14,
+    fontSize: tokens.typography.sizes.sm,
     textAlign: 'center',
+    marginTop: 8,
   },
 });
