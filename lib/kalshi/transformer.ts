@@ -6,7 +6,7 @@ export interface AppPrediction {
   title: string;
   category: 'music' | 'sports' | 'movies' | 'viral' | 'other';
   imageUri: string;
-  currentOdds: {
+  currentOdds: { // Odds are in percentage format (0-100)
     yes: number;
     no: number;
   };
@@ -103,9 +103,9 @@ export class KalshiTransformer {
       title: market.title,
       category,
       imageUri: this.getImageUrl(category, market.title),
-      currentOdds: {
-        yes: market.yes_ask || 50,
-        no: market.no_ask || 50,
+      currentOdds: { // Odds are in percentage format (0-100)
+        yes: market.yes_bid || 50,
+        no: market.no_bid || 50,
       },
       volume: market.volume || 0,
       closesAt: this.formatCloseTime(market.close_time),
