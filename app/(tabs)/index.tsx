@@ -1,0 +1,266 @@
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, SafeAreaView, StyleSheet, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { SwipeableCard } from '../../components/ui/SwipeableCard';
+import { CartFloatingButton } from '../../components/ui/CartFloatingButton';
+import { useCartStore } from '../../store/cartStore';
+import { useKalshiStore } from '../../store/kalshiStore';
+import { useUserStore } from '../../store/userStore';
+import { tokens } from '../../theme/tokens';
+import * as Haptics from 'expo-haptics';
+
+export default function SwipeFeedScreen() {
+  const { predictions, loading, fetchPredictions, refreshIfNeeded } = useKalshiStore();
+  const { addToCart, items } = useCartStore();
+  const { user } = useUserStore();
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [sessionPredictions, setSessionPredictions] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetchPredictions();
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshIfNeeded();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleSwipeRight = useCallback((prediction: any) => {
+    addToCart(prediction, 'yes');
+    setSessionPredictions(prev => [...prev, { ...prediction, userChoice: 'yes' }]);
+    setCurrentIndex(prev => prev + 1);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, [addToCart]);
+
+  const handleSwipeLeft = useCallback((prediction: any) => {
+    addToCart(prediction, 'no');
+    setSessionPredictions(prev => [...prev, { ...prediction, userChoice: 'no' }]);
+    setCurrentIndex(prev => prev + 1);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+  }, [addToCart]);
+
+  const handleSwipeUp = useCallback(() => {
+    setCurrentIndex(prev => prev + 1);
+  }, []);
+
+  const handleSwipeDown = useCallback(() => {
+    if (currentIndex > 0) {
+      setCurrentIndex(prev => prev - 1);
+    }
+  }, [currentIndex]);
+
+  const handleRefresh = useCallback(async () => {
+    setCurrentIndex(0);
+    setSessionPredictions([]);
+    await fetchPredictions();
+  }, [fetchPredictions]);
+
+  if (loading && predictions.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={tokens.colors.blue} />
+          <Text style={styles.loadingText}>Loading predictions...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const visiblePredictions = predictions.slice(currentIndex, currentIndex + 3);
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.logo}>Betcha</Text>
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.balanceBadge}>
+            <Text style={styles.balanceText}>${user?.virtualBalance.toFixed(0) || '1000'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.streakBadge}>
+            <Text style={styles.streakText}>🔥 {user?.currentStreak || 0}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.cardContainer}>
+        {visiblePredictions.reverse().map((prediction, index) => (
+          <SwipeableCard
+            key={`${prediction.id}-${currentIndex}`}
+            prediction={prediction}
+            onSwipeRight={() => handleSwipeRight(prediction)}
+            onSwipeLeft={() => handleSwipeLeft(prediction)}
+            onSwipeUp={handleSwipeUp}
+            onSwipeDown={handleSwipeDown}
+            isTopCard={index === visiblePredictions.length - 1}
+          />
+        ))}
+        
+        {visiblePredictions.length === 0 && (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyIcon}>🎯</Text>
+            <Text style={styles.emptyText}>No more predictions!</Text>
+            <Text style={styles.emptySubtext}>Check back soon or refresh for new markets</Text>
+            <TouchableOpacity style={styles.refreshButton} onPress={handleRefresh}>
+              <Text style={styles.refreshText}>Refresh Feed</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.bottomControls}>
+        <TouchableOpacity 
+          style={[styles.actionButton, styles.noButton]}
+          onPress={() => visiblePredictions[visiblePredictions.length - 1] && handleSwipeLeft(visiblePredictions[visiblePredictions.length - 1])}
+          disabled={visiblePredictions.length === 0}
+        >
+          <Text style={styles.buttonText}>NO</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.skipButton}
+          onPress={handleSwipeUp}
+          disabled={visiblePredictions.length === 0}
+        >
+          <Text style={styles.skipText}>SKIP</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={[styles.actionButton, styles.yesButton]}
+          onPress={() => visiblePredictions[visiblePredictions.length - 1] && handleSwipeRight(visiblePredictions[visiblePredictions.length - 1])}
+          disabled={visiblePredictions.length === 0}
+        >
+          <Text style={styles.buttonText}>YES</Text>
+        </TouchableOpacity>
+      </View>
+
+      {items.length > 0 && <CartFloatingButton />}
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: tokens.colors.background,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: tokens.colors.color2,
+    marginTop: 16,
+    fontSize: tokens.typography.sizes.md,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  logo: {
+    fontSize: tokens.typography.sizes.xxxl,
+    fontWeight: tokens.typography.weights.heavy,
+    color: tokens.colors.blue,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  balanceBadge: {
+    backgroundColor: tokens.colors.surface2,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: tokens.radius.pill,
+  },
+  balanceText: {
+    color: tokens.colors.blue,
+    fontWeight: tokens.typography.weights.bold,
+  },
+  streakBadge: {
+    backgroundColor: tokens.colors.surface2,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: tokens.radius.pill,
+  },
+  streakText: {
+    color: tokens.colors.gold,
+    fontWeight: tokens.typography.weights.bold,
+  },
+  cardContainer: {
+    flex: 1,
+    marginHorizontal: 20,
+    marginVertical: 20,
+    position: 'relative',
+  },
+  bottomControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    paddingBottom: 20,
+  },
+  actionButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...tokens.shadows.elevation,
+  },
+  yesButton: {
+    backgroundColor: tokens.colors.blue,
+  },
+  noButton: {
+    backgroundColor: tokens.colors.red,
+  },
+  skipButton: {
+    backgroundColor: tokens.colors.surface2,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: tokens.radius.pill,
+  },
+  buttonText: {
+    color: tokens.colors.background,
+    fontSize: tokens.typography.sizes.xl,
+    fontWeight: tokens.typography.weights.heavy,
+  },
+  skipText: {
+    color: tokens.colors.color3,
+    fontSize: tokens.typography.sizes.md,
+    fontWeight: tokens.typography.weights.semibold,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  emptyText: {
+    color: tokens.colors.color,
+    fontSize: tokens.typography.sizes.xl,
+    fontWeight: tokens.typography.weights.bold,
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    color: tokens.colors.color3,
+    fontSize: tokens.typography.sizes.md,
+    marginBottom: 24,
+  },
+  refreshButton: {
+    backgroundColor: tokens.colors.blue,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: tokens.radius.pill,
+  },
+  refreshText: {
+    color: tokens.colors.background,
+    fontWeight: tokens.typography.weights.bold,
+  },
+});
