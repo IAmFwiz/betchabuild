@@ -1,80 +1,142 @@
-import React from 'react';
-import { View, Text, StyleSheet, Image, Dimensions, TouchableOpacity } from 'react-native';
+import React, { useRef, useEffect } from 'react';
+import { Animated, PanResponder, Dimensions, View, Text, StyleSheet, Image } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { AppPrediction } from '../../lib/kalshi/transformer';
 import { tokens } from '../../theme/tokens';
 
-const { width: screenWidth } = Dimensions.get('window');
+const SWIPE_THRESHOLD = 120;
+const SWIPE_OUT_DURATION = 250;
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface SwipeableCardProps {
   prediction: AppPrediction;
-  onSwipeRight: () => void;
   onSwipeLeft: () => void;
+  onSwipeRight: () => void;
   onSwipeUp: () => void;
   onSwipeDown: () => void;
   isTopCard: boolean;
 }
 
-export function SwipeableCard({
-  prediction,
-  onSwipeRight,
-  onSwipeLeft,
-  onSwipeUp,
+export const SwipeableCard = ({ 
+  prediction, 
+  onSwipeLeft, 
+  onSwipeRight, 
+  onSwipeUp, 
   onSwipeDown,
-  isTopCard,
-}: SwipeableCardProps) {
+  isTopCard 
+}: SwipeableCardProps) => {
+  const position = useRef(new Animated.ValueXY()).current;
+  const rotation = position.x.interpolate({
+    inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
+    outputRange: ['-10deg', '0deg', '10deg'],
+  });
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: (_, gesture) => {
+        position.setValue({ x: gesture.dx, y: gesture.dy });
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dx > SWIPE_THRESHOLD) {
+          forceSwipe('right');
+        } else if (gesture.dx < -SWIPE_THRESHOLD) {
+          forceSwipe('left');
+        } else if (gesture.dy < -50) {
+          forceSwipe('up');
+        } else if (gesture.dy > 50) {
+          forceSwipe('down');
+        } else {
+          resetPosition();
+        }
+      },
+    })
+  ).current;
+
+  const forceSwipe = (direction: string) => {
+    const x = direction === 'right' ? SCREEN_WIDTH : direction === 'left' ? -SCREEN_WIDTH : 0;
+    const y = direction === 'up' ? -500 : direction === 'down' ? 500 : 0;
+    
+    Animated.timing(position, {
+      toValue: { x, y },
+      duration: SWIPE_OUT_DURATION,
+      useNativeDriver: false,
+    }).start(() => onSwipeComplete(direction));
+  };
+
+  const resetPosition = () => {
+    Animated.spring(position, {
+      toValue: { x: 0, y: 0 },
+      useNativeDriver: false,
+    }).start();
+  };
+
+  const onSwipeComplete = (direction: string) => {
+    position.setValue({ x: 0, y: 0 });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    switch(direction) {
+      case 'left': onSwipeLeft(); break;
+      case 'right': onSwipeRight(); break;
+      case 'up': onSwipeUp(); break;
+      case 'down': onSwipeDown(); break;
+    }
+  };
+
   return (
-    <View style={[styles.card, isTopCard && styles.topCard]}>
-      <Image source={{ uri: prediction.imageUri }} style={styles.image} />
-      <View style={styles.overlay}>
-        <View style={styles.header}>
-          <Text style={styles.category}>{prediction.category.toUpperCase()}</Text>
-          <Text style={styles.closesAt}>{prediction.closesAt}</Text>
-        </View>
-        
-        <View style={styles.content}>
-          <Text style={styles.title}>{prediction.title}</Text>
-          <Text style={styles.description}>{prediction.description}</Text>
-        </View>
-        
-        <View style={styles.footer}>
-          <View style={styles.oddsContainer}>
-            <View style={styles.oddsItem}>
-              <Text style={styles.oddsLabel}>YES</Text>
-              <Text style={styles.oddsValue}>{prediction.currentOdds.yes}¢</Text>
-            </View>
-            <View style={styles.oddsItem}>
-              <Text style={styles.oddsLabel}>NO</Text>
-              <Text style={styles.oddsValue}>{prediction.currentOdds.no}¢</Text>
-            </View>
+    <Animated.View
+      style={[
+        styles.card,
+        {
+          transform: [
+            { rotate: rotation },
+            ...position.getTranslateTransform(),
+          ],
+        },
+      ]}
+      {...panResponder.panHandlers}
+    >
+      <View style={styles.cardContent}>
+        <Image source={{ uri: prediction.imageUri }} style={styles.image} />
+        <View style={styles.overlay}>
+          <View style={styles.header}>
+            <Text style={styles.category}>{prediction.category.toUpperCase()}</Text>
+            <Text style={styles.closesAt}>{prediction.closesAt}</Text>
           </View>
           
-          <View style={styles.stats}>
-            <Text style={styles.volume}>📊 {prediction.volume.toLocaleString()}</Text>
-            {prediction.trending && <Text style={styles.trending}>🔥 Trending</Text>}
+          <View style={styles.content}>
+            <Text style={styles.title}>{prediction.title}</Text>
+            <Text style={styles.description}>{prediction.description}</Text>
           </View>
           
-          <View style={styles.actionButtons}>
-            <TouchableOpacity style={[styles.actionButton, styles.noButton]} onPress={onSwipeLeft}>
-              <Text style={styles.buttonText}>NO</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.skipButton} onPress={onSwipeUp}>
-              <Text style={styles.skipText}>SKIP</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionButton, styles.yesButton]} onPress={onSwipeRight}>
-              <Text style={styles.buttonText}>YES</Text>
-            </TouchableOpacity>
+          <View style={styles.footer}>
+            <View style={styles.oddsContainer}>
+              <View style={styles.oddsItem}>
+                <Text style={styles.oddsLabel}>YES</Text>
+                <Text style={styles.oddsValue}>{prediction.currentOdds.yes}¢</Text>
+              </View>
+              <View style={styles.oddsItem}>
+                <Text style={styles.oddsLabel}>NO</Text>
+                <Text style={styles.oddsValue}>{prediction.currentOdds.no}¢</Text>
+              </View>
+            </View>
+            
+            <View style={styles.stats}>
+              <Text style={styles.volume}>📊 {prediction.volume.toLocaleString()}</Text>
+              {prediction.trending && <Text style={styles.trending}>🔥 Trending</Text>}
+            </View>
           </View>
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
-}
+};
 
 const styles = StyleSheet.create({
   card: {
     position: 'absolute',
-    width: screenWidth - 40,
-    height: screenWidth * 1.2,
+    width: SCREEN_WIDTH - 40,
+    height: SCREEN_WIDTH * 1.2,
     backgroundColor: tokens.colors.surface,
     borderRadius: 16,
     overflow: 'hidden',
@@ -84,8 +146,8 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
-  topCard: {
-    zIndex: 1,
+  cardContent: {
+    flex: 1,
   },
   image: {
     width: '100%',
@@ -167,40 +229,6 @@ const styles = StyleSheet.create({
   trending: {
     color: tokens.colors.gold,
     fontSize: 12,
-    fontWeight: '600',
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-  },
-  actionButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  yesButton: {
-    backgroundColor: tokens.colors.blue,
-  },
-  noButton: {
-    backgroundColor: tokens.colors.red,
-  },
-  skipButton: {
-    backgroundColor: tokens.colors.surface2,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 16,
-  },
-  buttonText: {
-    color: tokens.colors.background,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  skipText: {
-    color: tokens.colors.color3,
-    fontSize: 14,
     fontWeight: '600',
   },
 });
