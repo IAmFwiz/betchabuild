@@ -27,6 +27,10 @@ import * as Haptics from 'expo-haptics';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
+// Theme color from Betcha logo
+const BETCHA_BLUE = '#00D4FF';
+const BETCHA_LIGHT_BLUE = '#00E5FF';
+
 // Inline function - no import needed
 const getCategoryColor = (category: string): string => {
   const colors: Record<string, string> = {
@@ -35,326 +39,344 @@ const getCategoryColor = (category: string): string => {
     HOLLYWOOD: '#9C27B0',
     FASHION: '#E91E63',
     SPORTS: '#FF6B00',
-    DEFAULT: '#00D4FF',
+    DEFAULT: BETCHA_BLUE,
   };
   return colors[category] || colors.DEFAULT;
 };
 
-// Entertainment-focused sample data (20 cards)
+// Entertainment-focused sample data
 const sampleBets = [
   {
     id: 1,
     category: 'MUSIC',
     question: 'Will Taylor Swift announce a new album this month?',
-    image: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800',
-    yesPercentage: 72,
-    noPercentage: 28,
+    yesPrice: 65,
+    noPrice: 35,
+    totalVolume: '$89.2K',
+    imageUrl: null,
+    endDate: '2025-08-31',
+    details: "With the Eras Tour ending, fans are speculating Taylor is ready to drop new music. Historical patterns suggest announcement timing."
   },
   {
     id: 2,
-    category: 'HOLLYWOOD',
-    question: 'Will the new Marvel movie cross $1B globally?',
-    image: 'https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=800',
-    yesPercentage: 85,
-    noPercentage: 15,
+    category: 'ENTERTAINMENT',
+    question: 'Will Marvel announce a new Avengers movie at Comic-Con?',
+    yesPrice: 72,
+    noPrice: 28,
+    totalVolume: '$145.3K',
+    imageUrl: null,
+    endDate: '2025-08-25',
+    details: "Industry insiders hint at major MCU announcements. Phase 6 needs a tentpole film."
   },
   {
     id: 3,
-    category: 'FASHION',
-    question: 'Will oversized blazers trend this fall?',
-    image: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800',
-    yesPercentage: 61,
-    noPercentage: 39,
+    category: 'SPORTS',
+    question: 'Will the Lakers make the playoffs?',
+    yesPrice: 58,
+    noPrice: 42,
+    totalVolume: '$234.7K',
+    imageUrl: null,
+    endDate: '2025-09-15',
+    details: "LeBron's final seasons. Team chemistry questions. Western Conference is loaded."
   },
   {
     id: 4,
-    category: 'ENTERTAINMENT',
-    question: 'Will Netflix stock hit $500 this quarter?',
-    image: 'https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=800',
-    yesPercentage: 43,
-    noPercentage: 57,
+    category: 'HOLLYWOOD',
+    question: 'Will Barbie win Best Picture at the Oscars?',
+    yesPrice: 45,
+    noPrice: 55,
+    totalVolume: '$567.2K',
+    imageUrl: null,
+    endDate: '2025-09-10',
+    details: "Cultural phenomenon vs traditional Academy preferences. Greta Gerwig's vision resonated globally."
   },
   {
     id: 5,
-    category: 'MUSIC',
-    question: 'Will Beyoncé win Album of the Year?',
-    image: 'https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=800',
-    yesPercentage: 68,
-    noPercentage: 32,
-  },
+    category: 'FASHION',
+    question: 'Will Kim K launch a new SKIMS collection this quarter?',
+    yesPrice: 81,
+    noPrice: 19,
+    totalVolume: '$67.4K',
+    imageUrl: null,
+    endDate: '2025-09-30',
+    details: "SKIMS expansion continues. Recent trademark filings suggest new categories."
+  }
 ];
 
-export default function HomeTab() {
-  // Currency states
-  const [credits, setCredits] = useState(0);
-  const [xp, setXp] = useState(1000);
-  const [streak, setStreak] = useState(0);
-  
-  // Card states
+export default function HomeScreen() {
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
-  const [bets, setBets] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [credits, setCredits] = useState(50);
+  const [xp, setXp] = useState(0);
+  const [streak, setStreak] = useState(0);
   const [sessionBets, setSessionBets] = useState<any[]>([]);
-  const [likedCards, setLikedCards] = useState<string[]>([]);
-  const [lastTap, setLastTap] = useState(0);
-  
-  // Modal states
+  const [showCheckout, setShowCheckout] = useState(false);
   const [showCreditsPurchase, setShowCreditsPurchase] = useState(false);
-  const [showSessionCheckout, setShowSessionCheckout] = useState(false);
   const [showDailyXP, setShowDailyXP] = useState(false);
+  const [activeCards, setActiveCards] = useState(sampleBets);
+  const [isLoadingReal, setIsLoadingReal] = useState(false);
+  const [likedCards, setLikedCards] = useState<Set<number>>(new Set());
+  const [lastSwipeTime, setLastSwipeTime] = useState<Date | null>(null);
   
-  // Animation values
-  const position = useRef(new Animated.ValueXY()).current;
-  const likeScale = useRef(new Animated.Value(0)).current;
-  const chargeProgress = useRef(new Animated.Value(0)).current;
-  const rotateCard = position.x.interpolate({
-    inputRange: [-screenWidth / 2, 0, screenWidth / 2],
-    outputRange: ['-8deg', '0deg', '8deg'],
-  });
+  const pan = useRef(new Animated.ValueXY()).current;
+  const rotateValue = useRef(new Animated.Value(0)).current;
+  const opacityValue = useRef(new Animated.Value(1)).current;
+  const scaleValue = useRef(new Animated.Value(1)).current;
+  const isAnimating = useRef(false);
   
-  // Format large numbers to be compact
-  const formatNumber = (num: number): string => {
-    if (num >= 10000) {
-      return (num / 1000).toFixed(0) + 'K';
-    } else if (num >= 1000) {
-      return (num / 1000).toFixed(1) + 'K';
-    }
-    return num.toString();
-  };
-  
-  const currentBet = bets[currentCardIndex];
-  
-  // Load markets and user data on mount
-  useEffect(() => {
-    loadMarkets();
-    checkDailyXP();
-    loadUserData();
-  }, []);
-  
-  // Save user data whenever it changes
-  useEffect(() => {
-    saveUserData();
-  }, [credits, xp, streak]);
-  
-  const loadUserData = async () => {
-    try {
-      const savedCredits = await AsyncStorage.getItem('userCredits');
-      const savedXP = await AsyncStorage.getItem('userXP');
-      const savedStreak = await AsyncStorage.getItem('userStreak');
-      const savedLikes = await AsyncStorage.getItem('likedCards');
-      
-      if (savedCredits !== null) setCredits(parseInt(savedCredits));
-      if (savedXP !== null) setXp(parseInt(savedXP));
-      if (savedStreak !== null) setStreak(parseInt(savedStreak));
-      if (savedLikes !== null) setLikedCards(JSON.parse(savedLikes));
-    } catch (error) {
-      console.error('Error loading user data:', error);
-    }
-  };
-  
-  const saveUserData = async () => {
-    try {
-      await AsyncStorage.setItem('userCredits', credits.toString());
-      await AsyncStorage.setItem('userXP', xp.toString());
-      await AsyncStorage.setItem('userStreak', streak.toString());
-    } catch (error) {
-      console.error('Error saving user data:', error);
-    }
-  };
-  
-  const loadMarkets = async () => {
-    setLoading(true);
-    try {
-      const markets = await kalshiService.getMarkets();
-      setBets(markets.length > 0 ? markets : sampleBets);
-    } catch (error) {
-      console.error('Error loading markets:', error);
-      setBets(sampleBets);
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  const checkDailyXP = async () => {
-    try {
-      const lastClaim = await AsyncStorage.getItem('lastXPClaim');
-      const today = new Date().toDateString();
-      if (lastClaim !== today) {
-        setShowDailyXP(true);
-      }
-    } catch (error) {
-      console.error('Error checking daily XP:', error);
-    }
-  };
+  const currentCard = activeCards[currentCardIndex];
 
-  // Pan responder with more sensitive swipe detection
+  const rotate = rotateValue.interpolate({
+    inputRange: [-screenWidth / 2, 0, screenWidth / 2],
+    outputRange: ['-15deg', '0deg', '15deg'],
+  });
+
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onPanResponderMove: (_, gesture) => {
-        position.setValue({ x: gesture.dx, y: gesture.dy });
+      onStartShouldSetPanResponder: () => !isAnimating.current,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        return !isAnimating.current && (Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5);
       },
-      onPanResponderRelease: (_, gesture) => {
-        const { dx, dy, vx, vy } = gesture;
-        const velocity = Math.sqrt(vx * vx + vy * vy);
+      onPanResponderGrant: () => {
+        Animated.spring(scaleValue, {
+          toValue: 0.95,
+          useNativeDriver: true,
+        }).start();
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (isAnimating.current) return;
         
-        // Very sensitive swipe detection with velocity
-        if (dx > 30 || vx > 0.5) {
-          // Swipe right - YES
-          handleSwipe('yes');
-        } else if (dx < -30 || vx < -0.5) {
-          // Swipe left - NO
-          handleSwipe('no');
-        } else if (dy < -30 || vy < -0.5) {
-          // Swipe up - SKIP
-          handleSkip();
-        } else if (dy > 30 && currentCardIndex > 0) {
-          // Swipe down - GO BACK
-          handleGoBack();
+        pan.setValue({ x: gestureState.dx, y: gestureState.dy });
+        rotateValue.setValue(gestureState.dx);
+        
+        const opacity = 1 - Math.min(Math.abs(gestureState.dx) / (screenWidth * 0.5), 0.3);
+        opacityValue.setValue(opacity);
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        if (isAnimating.current) return;
+        
+        const absX = Math.abs(gestureState.dx);
+        const absY = Math.abs(gestureState.dy);
+        const velocityX = Math.abs(gestureState.vx);
+        const velocityY = Math.abs(gestureState.vy);
+        
+        // Determine if this is primarily a horizontal or vertical swipe
+        const isHorizontal = absX > absY;
+        
+        // Thresholds for triggering actions
+        const horizontalThreshold = screenWidth * 0.25;
+        const verticalThreshold = screenHeight * 0.15;
+        const velocityThreshold = 0.5;
+        
+        if (isHorizontal && (absX > horizontalThreshold || velocityX > velocityThreshold)) {
+          if (gestureState.dx > 0) {
+            // Swipe Right - YES
+            handleYes();
+          } else {
+            // Swipe Left - NO
+            handleNo();
+          }
+        } else if (!isHorizontal && (absY > verticalThreshold || velocityY > velocityThreshold)) {
+          if (gestureState.dy < 0) {
+            // Swipe Up - Skip
+            handleSkip();
+          } else if (gestureState.dy > 0 && currentCardIndex > 0) {
+            // Swipe Down - Previous
+            handlePrevious();
+          } else {
+            // Spring back if can't go to previous
+            springBack();
+          }
         } else {
-          // Spring back
-          Animated.spring(position, {
-            toValue: { x: 0, y: 0 },
-            friction: 5,
-            tension: 40,
-            useNativeDriver: true,
-          }).start();
+          // Not enough movement, spring back
+          springBack();
         }
       },
     })
   ).current;
 
-  const handleSwipe = async (side: 'yes' | 'no') => {
-    if (!currentBet) return;
-    
-    const cost = 1;
-    
-    // Check currency
-    if (credits < cost) {
-      setShowCreditsPurchase(true);
-      Animated.spring(position, {
+  const springBack = () => {
+    Animated.parallel([
+      Animated.spring(pan, {
         toValue: { x: 0, y: 0 },
         useNativeDriver: true,
-      }).start();
+        tension: 40,
+        friction: 8,
+      }),
+      Animated.spring(rotateValue, {
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+      Animated.spring(opacityValue, {
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleValue, {
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const animateCardOut = (direction: 'left' | 'right' | 'up' | 'down', onComplete: () => void) => {
+    if (isAnimating.current) return;
+    isAnimating.current = true;
+    
+    let toValue = { x: 0, y: 0 };
+    let rotateEndValue = 0;
+    
+    switch (direction) {
+      case 'left':
+        toValue = { x: -screenWidth * 1.5, y: 0 };
+        rotateEndValue = -screenWidth / 2;
+        break;
+      case 'right':
+        toValue = { x: screenWidth * 1.5, y: 0 };
+        rotateEndValue = screenWidth / 2;
+        break;
+      case 'up':
+        toValue = { x: 0, y: -screenHeight };
+        break;
+      case 'down':
+        toValue = { x: 0, y: screenHeight };
+        break;
+    }
+    
+    Animated.parallel([
+      Animated.timing(pan, {
+        toValue,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(rotateValue, {
+        toValue: rotateEndValue,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityValue, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      onComplete();
+      // Reset animation values
+      pan.setValue({ x: 0, y: 0 });
+      rotateValue.setValue(0);
+      opacityValue.setValue(1);
+      scaleValue.setValue(1);
+      isAnimating.current = false;
+    });
+  };
+
+  const handleYes = () => {
+    if (!currentCard || credits <= 0) {
+      if (credits <= 0) {
+        setShowCreditsPurchase(true);
+      }
+      springBack();
       return;
     }
     
-    // Haptic feedback
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
-    // Add to session
-    const newBet = {
-      betId: currentBet.id,
-      side,
-      amount: cost,
-      question: currentBet.question,
-      category: currentBet.category,
-      odds: side === 'yes' ? currentBet.yesPercentage : currentBet.noPercentage,
-    };
-    
-    const updatedSession = [...sessionBets, newBet];
-    setSessionBets(updatedSession);
-    
-    // Update currency
-    setCredits(prev => prev - cost);
-    setXp(prev => prev + 100);
-    setStreak(prev => prev + 1);
-    
-    // Update progress
-    Animated.timing(chargeProgress, {
-      toValue: updatedSession.length / 20,
-      duration: 300,
-      useNativeDriver: false,
-    }).start();
-    
-    // Animate card off
-    const targetX = side === 'yes' ? screenWidth * 1.5 : -screenWidth * 1.5;
-    Animated.timing(position, {
-      toValue: { x: targetX, y: 0 },
-      duration: 250,
-      useNativeDriver: true,
-    }).start(() => {
-      position.setValue({ x: 0, y: 0 });
+    animateCardOut('right', () => {
+      const bet = {
+        ...currentCard,
+        choice: 'YES',
+        amount: 1,
+        potentialPayout: (100 / currentCard.yesPrice).toFixed(2)
+      };
       
-      if (updatedSession.length >= 20) {
-        handleSessionComplete();
+      setSessionBets(prev => [...prev, bet]);
+      setCredits(prev => Math.max(0, prev - 1));
+      setXp(prev => prev + 10);
+      updateStreak();
+      
+      if (currentCardIndex < activeCards.length - 1) {
+        setCurrentCardIndex(prev => prev + 1);
       } else {
-        nextCard();
+        setCurrentCardIndex(0);
+      }
+    });
+  };
+
+  const handleNo = () => {
+    if (!currentCard || credits <= 0) {
+      if (credits <= 0) {
+        setShowCreditsPurchase(true);
+      }
+      springBack();
+      return;
+    }
+    
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    animateCardOut('left', () => {
+      const bet = {
+        ...currentCard,
+        choice: 'NO',
+        amount: 1,
+        potentialPayout: (100 / currentCard.noPrice).toFixed(2)
+      };
+      
+      setSessionBets(prev => [...prev, bet]);
+      setCredits(prev => Math.max(0, prev - 1));
+      setXp(prev => prev + 10);
+      updateStreak();
+      
+      if (currentCardIndex < activeCards.length - 1) {
+        setCurrentCardIndex(prev => prev + 1);
+      } else {
+        setCurrentCardIndex(0);
       }
     });
   };
 
   const handleSkip = () => {
-    if (!currentBet) return;
-    
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
-    Animated.timing(position, {
-      toValue: { x: 0, y: -screenHeight },
-      duration: 250,
-      useNativeDriver: true,
-    }).start(() => {
-      position.setValue({ x: 0, y: 0 });
-      nextCard();
+    animateCardOut('up', () => {
+      updateStreak();
+      if (currentCardIndex < activeCards.length - 1) {
+        setCurrentCardIndex(prev => prev + 1);
+      } else {
+        setCurrentCardIndex(0);
+      }
     });
   };
 
-  const handleGoBack = () => {
+  const handlePrevious = () => {
     if (currentCardIndex === 0) {
-      Animated.spring(position, {
-        toValue: { x: 0, y: 0 },
-        friction: 5,
-        useNativeDriver: true,
-      }).start();
+      springBack();
       return;
     }
     
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
-    Animated.timing(position, {
-      toValue: { x: 0, y: screenHeight },
-      duration: 250,
-      useNativeDriver: true,
-    }).start(() => {
+    animateCardOut('down', () => {
       setCurrentCardIndex(prev => Math.max(0, prev - 1));
-      position.setValue({ x: 0, y: 0 });
     });
   };
 
-  const handleDoubleTap = () => {
-    const now = Date.now();
-    if (lastTap && (now - lastTap) < 300) {
-      // Double tap detected
-      handleLike();
+  const updateStreak = () => {
+    const now = new Date();
+    if (!lastSwipeTime || now.getDate() !== lastSwipeTime.getDate()) {
+      setStreak(prev => prev + 1);
     }
-    setLastTap(now);
+    setLastSwipeTime(now);
   };
 
-  const handleLike = async () => {
-    if (!currentBet) return;
-    
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    
-    // Animate heart
-    Animated.sequence([
-      Animated.spring(likeScale, {
-        toValue: 1.2,
-        friction: 3,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-      Animated.spring(likeScale, {
-        toValue: 1,
-        friction: 3,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-    ]).start();
-    
-    // Save liked card
-    const updatedLikes = [...likedCards, currentBet.id];
-    setLikedCards(updatedLikes);
-    await AsyncStorage.setItem('likedCards', JSON.stringify(updatedLikes));
+  const handleLike = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setLikedCards(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(currentCard.id)) {
+        newSet.delete(currentCard.id);
+      } else {
+        newSet.add(currentCard.id);
+      }
+      return newSet;
+    });
   };
 
   const handleComment = () => {
@@ -367,262 +389,206 @@ export default function HomeTab() {
     Alert.alert('Share', 'Share feature coming soon!');
   };
 
-  const handleSessionComplete = async () => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    setShowSessionCheckout(true);
-  };
-
-  const handleSessionSubmit = () => {
-    setSessionBets([]);
-    chargeProgress.setValue(0);
-    setCurrentCardIndex(0);
-    setShowSessionCheckout(false);
-    Alert.alert('Success!', 'Your predictions have been submitted!');
-  };
-
-  const nextCard = () => {
-    if (currentCardIndex < bets.length - 1) {
-      setCurrentCardIndex(prev => prev + 1);
-    } else {
-      setCurrentCardIndex(0);
-    }
-  };
-
-  const handlePurchase = (creditsAmount: number, price: number) => {
-    setCredits(prev => prev + creditsAmount);
-    setShowCreditsPurchase(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  };
-
-  const handleClaimXP = async (amount: number) => {
-    setXp(prev => prev + amount);
-    setShowDailyXP(false);
-    try {
-      await AsyncStorage.setItem('lastXPClaim', new Date().toDateString());
-    } catch (error) {
-      console.error('Error saving XP claim date:', error);
-    }
-  };
-
-  if (loading) {
+  if (!currentCard) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color="#00D4FF" />
-        <Text style={styles.loadingText}>Loading entertainment markets...</Text>
-      </View>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyText}>No more predictions!</Text>
+          <TouchableOpacity style={styles.refreshButton} onPress={() => setCurrentCardIndex(0)}>
+            <Text style={styles.refreshText}>Start Over</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
-
-  if (!currentBet) {
-    return (
-      <View style={[styles.container, styles.centerContent]}>
-        <Text style={styles.emptyText}>No markets available</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={loadMarkets}>
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  const isLiked = likedCards.includes(currentBet.id);
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFF" />
+      <StatusBar barStyle="light-content" />
       
-      {/* Header */}
+      {/* Header with Logo and Stats - Positioned Lower */}
       <View style={styles.header}>
         <Image 
           source={require('../../assets/betcha-new-v2.png')}
           style={styles.logoImage}
           resizeMode="contain"
         />
+        
         <View style={styles.statsContainer}>
+          {/* Credits */}
           <TouchableOpacity 
-            style={[styles.statBox, styles.creditsBox]}
+            style={styles.statBox}
             onPress={() => setShowCreditsPurchase(true)}
             activeOpacity={0.8}>
-            <Text style={styles.statValue} numberOfLines={1}>�� {formatNumber(credits)}</Text>
+            <Text style={styles.statEmoji}>��</Text>
+            <Text style={styles.statValue}>{credits}</Text>
             <Text style={styles.statLabel}>CREDITS</Text>
           </TouchableOpacity>
           
-          <TouchableOpacity 
-            style={[styles.statBox, styles.xpBox]}
-            onPress={() => setShowDailyXP(true)}
-            activeOpacity={0.8}>
-            <Text style={styles.statValue} numberOfLines={1}>⭐️ {formatNumber(xp)}</Text>
+          {/* XP */}
+          <View style={styles.statBox}>
+            <Text style={styles.statEmoji}>⭐</Text>
+            <Text style={styles.statValue}>{xp.toLocaleString()}</Text>
             <Text style={styles.statLabel}>XP</Text>
-          </TouchableOpacity>
+          </View>
           
-          <View style={[styles.statBox, styles.streakBox]}>
-            <Text style={styles.statValue} numberOfLines={1}>�� {formatNumber(streak)}</Text>
+          {/* Streak */}
+          <View style={styles.statBox}>
+            <Text style={styles.statEmoji}>��</Text>
+            <Text style={styles.statValue}>{streak}</Text>
             <Text style={styles.statLabel}>STREAK</Text>
           </View>
         </View>
       </View>
 
-      {/* Progress Bar */}
-      <View style={styles.progressContainer}>
-        <View style={styles.progressBar}>
-          <Animated.View 
-            style={[
-              styles.progressFill,
-              {
-                width: chargeProgress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ['0%', '100%'],
-                }),
-              }
-            ]}
-          />
+      {/* Main Card - Goes all the way to top */}
+      <Animated.View
+        style={[
+          styles.cardContainer,
+          {
+            transform: [
+              { translateX: pan.x },
+              { translateY: pan.y },
+              { rotate },
+              { scale: scaleValue }
+            ],
+            opacity: opacityValue,
+          },
+        ]}
+        {...panResponder.panHandlers}>
+        
+        {/* Card with blue top border */}
+        <View style={styles.card}>
+          <View style={styles.cardTopBorder} />
+          
+          {/* Card Image/Content Area */}
+          <LinearGradient
+            colors={[getCategoryColor(currentCard.category), '#000']}
+            style={styles.cardGradient}>
+            
+            {/* Category Pill */}
+            <View style={styles.categoryPill}>
+              <Text style={styles.categoryText}>{currentCard.category}</Text>
+            </View>
+            
+            {/* Question */}
+            <View style={styles.questionContainer}>
+              <Text style={styles.questionText}>{currentCard.question}</Text>
+            </View>
+            
+            {/* Prices */}
+            <View style={styles.pricesContainer}>
+              <View style={styles.priceBox}>
+                <Text style={styles.priceLabel}>YES</Text>
+                <Text style={styles.priceValue}>{currentCard.yesPrice}%</Text>
+              </View>
+              <View style={styles.priceDivider} />
+              <View style={styles.priceBox}>
+                <Text style={styles.priceLabel}>NO</Text>
+                <Text style={styles.priceValue}>{currentCard.noPrice}%</Text>
+              </View>
+            </View>
+            
+            {/* Volume */}
+            <Text style={styles.volumeText}>Volume: {currentCard.totalVolume}</Text>
+          </LinearGradient>
+          
+          {/* Interaction Buttons */}
+          <View style={styles.interactionContainer}>
+            <TouchableOpacity 
+              style={styles.interactionButton} 
+              onPress={handleLike}
+              onLongPress={handleLike}>
+              <Heart 
+                size={28} 
+                color={likedCards.has(currentCard.id) ? '#FF2D55' : '#FFF'} 
+                fill={likedCards.has(currentCard.id) ? '#FF2D55' : 'none'}
+              />
+              <Text style={styles.interactionText}>2.4K</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.interactionButton} onPress={handleComment}>
+              <MessageCircle size={28} color="#FFF" />
+              <Text style={styles.interactionText}>147</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.interactionButton} onPress={handleShare}>
+              <Share2 size={28} color="#FFF" />
+              <Text style={styles.interactionText}>Share</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {/* Card Progress Dots */}
+          <View style={styles.progressContainer}>
+            <View style={styles.dotsContainer}>
+              {activeCards.map((_, index) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.dot,
+                    index === currentCardIndex && styles.activeDot,
+                    index < currentCardIndex && styles.completedDot
+                  ]}
+                />
+              ))}
+            </View>
+            <Text style={styles.progressText}>
+              {currentCardIndex + 1} / {activeCards.length}
+            </Text>
+          </View>
         </View>
-        <Text style={styles.progressText}>{sessionBets.length + 1}/20</Text>
+      </Animated.View>
+
+      {/* Action Buttons */}
+      <View style={styles.actionButtonsContainer}>
+        <TouchableOpacity 
+          style={[styles.actionButton, styles.noButton]} 
+          onPress={handleNo}
+          disabled={credits <= 0}>
+          <Text style={styles.actionButtonText}>NO</Text>
+          <Text style={styles.actionButtonPercent}>{currentCard.noPrice}%</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={[styles.actionButton, styles.yesButton]} 
+          onPress={handleYes}
+          disabled={credits <= 0}>
+          <Text style={styles.actionButtonText}>YES</Text>
+          <Text style={styles.actionButtonPercent}>{currentCard.yesPrice}%</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Card */}
-      <TouchableOpacity 
-        activeOpacity={1}
-        onPress={handleDoubleTap}
-        style={styles.cardContainer}>
-        <Animated.View 
-          style={[
-            styles.card,
-            {
-              transform: [
-                { translateX: position.x },
-                { translateY: position.y },
-                { rotate: rotateCard },
-              ],
-            },
-          ]}
-          {...panResponder.panHandlers}>
-          
-          {/* Card Actions - Overlaid on top right */}
-          <View style={styles.cardActions}>
-            <TouchableOpacity 
-              style={styles.actionButton} 
-              onPress={handleLike}
-              activeOpacity={0.7}>
-              <Animated.View style={{ transform: [{ scale: likeScale }] }}>
-                <Heart 
-                  size={24} 
-                  color={isLiked ? '#FF3B30' : '#FFF'}
-                  fill={isLiked ? '#FF3B30' : 'none'}
-                />
-              </Animated.View>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.actionButton}
-              onPress={handleComment}
-              activeOpacity={0.7}>
-              <MessageCircle size={24} color="#FFF" />
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.actionButton}
-              onPress={handleShare}
-              activeOpacity={0.7}>
-              <Share2 size={24} color="#FFF" />
-            </TouchableOpacity>
-          </View>
-          
-          <View style={styles.imageContainer}>
-            <Image source={{ uri: currentBet.image }} style={styles.cardImage} />
-            
-            <LinearGradient
-              colors={['rgba(255, 59, 48, 0.2)', 'transparent']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0.3, y: 0 }}
-              style={styles.leftGradient}
-            />
-            
-            <LinearGradient
-              colors={['transparent', 'rgba(52, 199, 89, 0.2)']}
-              start={{ x: 0.7, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.rightGradient}
-            />
-          </View>
-          
-          <View style={styles.cardContent}>
-            <View 
-              style={[
-                styles.categoryBadge,
-                { backgroundColor: getCategoryColor(currentBet.category) }
-              ]}>
-              <Text style={styles.categoryText}>{currentBet.category}</Text>
-            </View>
-            
-            <Text style={styles.question}>{currentBet.question}</Text>
-            
-            <View style={styles.percentagesContainer}>
-              <View style={styles.noPercentage}>
-                <Text style={styles.noPercentageLabel}>NO</Text>
-                <Text style={styles.noPercentageValue}>{currentBet.noPercentage}%</Text>
-              </View>
-              <View style={styles.yesPercentage}>
-                <Text style={styles.yesPercentageLabel}>YES</Text>
-                <Text style={styles.yesPercentageValue}>{currentBet.yesPercentage}%</Text>
-              </View>
-            </View>
-          </View>
-          
-          {/* Swipe indicators */}
-          <Animated.View 
-            style={[
-              styles.swipeIndicator,
-              styles.yesIndicator,
-              {
-                opacity: position.x.interpolate({
-                  inputRange: [0, 50],
-                  outputRange: [0, 1],
-                  extrapolate: 'clamp',
-                }),
-              },
-            ]}>
-            <Text style={styles.swipeText}>YES</Text>
-          </Animated.View>
-          
-          <Animated.View 
-            style={[
-              styles.swipeIndicator,
-              styles.noIndicator,
-              {
-                opacity: position.x.interpolate({
-                  inputRange: [-50, 0],
-                  outputRange: [1, 0],
-                  extrapolate: 'clamp',
-                }),
-              },
-            ]}>
-            <Text style={styles.swipeText}>NO</Text>
-          </Animated.View>
-        </Animated.View>
-      </TouchableOpacity>
-      
       {/* Modals */}
-      <CreditsPurchase
-        visible={showCreditsPurchase}
-        onClose={() => setShowCreditsPurchase(false)}
-        onPurchase={handlePurchase}
-        currentCredits={credits}
-      />
+      {showCreditsPurchase && (
+        <CreditsPurchase 
+          onClose={() => setShowCreditsPurchase(false)}
+          onPurchase={(amount) => {
+            setCredits(prev => prev + amount);
+            setShowCreditsPurchase(false);
+          }}
+        />
+      )}
       
-      <SessionCheckout
-        visible={showSessionCheckout}
-        onClose={() => setShowSessionCheckout(false)}
-        onSubmit={handleSessionSubmit}
-        sessionBets={sessionBets}
-        isCreditsMode={true}
-        totalSpent={sessionBets.length}
-      />
+      {showCheckout && sessionBets.length > 0 && (
+        <SessionCheckout
+          bets={sessionBets}
+          onClose={() => setShowCheckout(false)}
+          onConfirm={() => {
+            setSessionBets([]);
+            setShowCheckout(false);
+          }}
+        />
+      )}
       
-      <DailyXPClaim
-        visible={showDailyXP}
-        onClaim={handleClaimXP}
-        onClose={() => setShowDailyXP(false)}
-      />
+      {showDailyXP && (
+        <DailyXPClaim
+          onClaim={(amount) => {
+            setXp(prev => prev + amount);
+            setShowDailyXP(false);
+          }}
+          onClose={() => setShowDailyXP(false)}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -630,235 +596,222 @@ export default function HomeTab() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF',
+    backgroundColor: '#000',
   },
   header: {
+    position: 'absolute',
+    top: 60, // Moved down from top
+    left: 0,
+    right: 0,
+    zIndex: 100,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 10 : 20,
-    paddingBottom: 10,
-    backgroundColor: '#FFF',
   },
   logoImage: {
-    width: 120,
-    height: 50,
+    width: 120, // 3x bigger
+    height: 60,
+    marginLeft: -10,
   },
   statsContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+    gap: 8,
   },
   statBox: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 60,
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 10,
-    minWidth: 50,
-    maxWidth: 65,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
-  creditsBox: {
-    backgroundColor: 'rgba(0, 212, 255, 0.15)',
-  },
-  xpBox: {
-    backgroundColor: 'rgba(255, 215, 0, 0.15)',
-  },
-  streakBox: {
-    backgroundColor: 'rgba(255, 149, 0, 0.2)',
+  statEmoji: {
+    fontSize: 16,
+    marginBottom: 2,
   },
   statValue: {
-    fontSize: 12,
-    color: '#000',
+    color: '#FFF',
+    fontSize: 16,
     fontWeight: '700',
   },
   statLabel: {
-    fontSize: 7,
-    color: '#666',
-    marginTop: 1,
-    letterSpacing: 0.2,
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 9,
     fontWeight: '600',
-  },
-  progressContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 10,
-    backgroundColor: '#FFF',
-  },
-  progressBar: {
-    height: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.1)',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#00D4FF',
-    borderRadius: 2,
-  },
-  progressText: {
-    color: '#666',
-    fontSize: 11,
-    textAlign: 'center',
-    marginTop: 6,
+    marginTop: 2,
   },
   cardContainer: {
-    flex: 1,
+    position: 'absolute',
+    top: 0, // Card starts at very top
+    left: 20,
+    right: 20,
+    bottom: 100,
+    zIndex: 50,
   },
   card: {
     flex: 1,
-    backgroundColor: '#FFF',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  cardActions: {
-    position: 'absolute',
-    top: 20,
-    right: 15,
-    flexDirection: 'row',
-    gap: 15,
-    zIndex: 10,
-  },
-  actionButton: {
-    width: 40,
-    height: 40,
+    backgroundColor: '#111',
     borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    overflow: 'hidden',
   },
-  imageContainer: {
+  cardTopBorder: {
+    height: 2,
+    backgroundColor: BETCHA_BLUE,
+  },
+  cardGradient: {
     flex: 1,
-    position: 'relative',
-  },
-  cardImage: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#F0F0F0',
-  },
-  leftGradient: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: '50%',
-  },
-  rightGradient: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: '50%',
-  },
-  cardContent: {
     padding: 20,
-    backgroundColor: '#FFF',
+    justifyContent: 'center',
   },
-  categoryBadge: {
+  categoryPill: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 16,
-    marginBottom: 12,
+    borderRadius: 20,
+    marginBottom: 20,
   },
   categoryText: {
     color: '#FFF',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 1,
   },
-  question: {
-    fontSize: 22,
+  questionContainer: {
+    marginBottom: 30,
+  },
+  questionText: {
+    color: '#FFF',
+    fontSize: 28,
     fontWeight: '700',
-    color: '#000',
-    lineHeight: 28,
+    lineHeight: 36,
+  },
+  pricesContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 20,
   },
-  percentagesContainer: {
+  priceBox: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  priceDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    marginHorizontal: 20,
+  },
+  priceLabel: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  priceValue: {
+    color: '#FFF',
+    fontSize: 32,
+    fontWeight: '700',
+  },
+  volumeText: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  interactionContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  noPercentage: {
-    alignItems: 'center',
-  },
-  yesPercentage: {
-    alignItems: 'center',
-  },
-  noPercentageLabel: {
-    fontSize: 12,
-    color: '#FF3B30',
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  yesPercentageLabel: {
-    fontSize: 12,
-    color: '#34C759',
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  noPercentageValue: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#FF3B30',
-  },
-  yesPercentageValue: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#34C759',
-  },
-  swipeIndicator: {
-    position: 'absolute',
+    justifyContent: 'space-around',
+    paddingVertical: 15,
     paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 3,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
-  yesIndicator: {
-    top: '45%',
-    right: 20,
-    borderColor: '#34C759',
-    backgroundColor: 'rgba(52, 199, 89, 0.1)',
+  interactionButton: {
+    alignItems: 'center',
   },
-  noIndicator: {
-    top: '45%',
+  interactionText: {
+    color: '#FFF',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  progressContainer: {
+    paddingVertical: 15,
+    alignItems: 'center',
+  },
+  dotsContainer: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 8,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  activeDot: {
+    backgroundColor: BETCHA_BLUE,
+    width: 18,
+  },
+  completedDot: {
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  progressText: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 12,
+  },
+  actionButtonsContainer: {
+    position: 'absolute',
+    bottom: 30,
     left: 20,
-    borderColor: '#FF3B30',
-    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+    right: 20,
+    flexDirection: 'row',
+    gap: 15,
+    zIndex: 60,
   },
-  swipeText: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#000',
+  actionButton: {
+    flex: 1,
+    paddingVertical: 18,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  centerContent: {
+  noButton: {
+    backgroundColor: '#FF3B30',
+  },
+  yesButton: {
+    backgroundColor: '#34C759',
+  },
+  actionButtonText: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  actionButtonPercent: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 14,
+    marginTop: 2,
+  },
+  emptyState: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loadingText: {
-    color: '#666',
-    fontSize: 16,
-    marginTop: 20,
-  },
   emptyText: {
-    color: '#666',
-    fontSize: 18,
-    textAlign: 'center',
-    marginTop: 100,
-  },
-  retryButton: {
-    marginTop: 20,
-    paddingHorizontal: 30,
-    paddingVertical: 12,
-    backgroundColor: '#00D4FF',
-    borderRadius: 20,
-  },
-  retryText: {
     color: '#FFF',
+    fontSize: 24,
+    fontWeight: '600',
+    marginBottom: 20,
+  },
+  refreshButton: {
+    backgroundColor: BETCHA_BLUE,
+    paddingHorizontal: 30,
+    paddingVertical: 15,
+    borderRadius: 25,
+  },
+  refreshText: {
+    color: '#000',
     fontSize: 16,
     fontWeight: '600',
   },

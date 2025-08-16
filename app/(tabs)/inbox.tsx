@@ -4,7 +4,7 @@ export default function Inbox() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Inbox</Text>
-      <Text style={styles.subtitle}>Your shared predictions and messages</Text>
+      <Text style={styles.subtitle}>Shared predictions & messages</Text>
     </View>
   );
 }
@@ -14,16 +14,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFF',
+    backgroundColor: '#000',
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#000',
+    color: '#FFF',
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
+    color: '#888',
     marginTop: 10,
   },
 });

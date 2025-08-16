@@ -1,10 +1,10 @@
 import { View, Text, StyleSheet } from 'react-native';
 
-export default function Search() {
+export default function Leaderboard() {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Search</Text>
-      <Text style={styles.subtitle}>Search for teams, players, and bets</Text>
+      <Text style={styles.title}>Leaderboard</Text>
+      <Text style={styles.subtitle}>Top predictors</Text>
     </View>
   );
 }
@@ -19,7 +19,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#FFF',
   },
   subtitle: {
     fontSize: 16,
