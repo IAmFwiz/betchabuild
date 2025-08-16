@@ -1,55 +1,59 @@
-import React from 'react';
-import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { tokens } from '../../theme/tokens';
+// app/(tabs)/_layout.tsx
 
-export default function TabsLayout() {
+import { Tabs } from 'expo-router';
+import { Home, Inbox, User } from 'lucide-react-native';
+import { Image, View } from 'react-native';
+
+export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerShown: false,
+        tabBarActiveTintColor: '#00D4FF',
+        tabBarInactiveTintColor: '#888',
         tabBarStyle: {
-          backgroundColor: tokens.colors.surface,
-          borderTopColor: tokens.colors.outline,
-          borderTopWidth: 1,
+          backgroundColor: '#000',
+          borderTopColor: '#222',
+          paddingBottom: 5,
+          paddingTop: 5,
+          height: 60,
         },
-        tabBarActiveTintColor: tokens.colors.blue,
-        tabBarInactiveTintColor: tokens.colors.color3,
-      }}
-    >
+        headerShown: false,
+      }}>
+      
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Swipe',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="swap-horizontal" size={size} color={color} />
-          ),
+          title: 'Home',
+          tabBarIcon: ({ color, size }) => <Home size={size} color={color} />,
         }}
       />
+      
       <Tabs.Screen
-        name="trending"
+        name="inbox"
         options={{
-          title: 'Trending',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="trending-up" size={size} color={color} />
-          ),
+          title: 'Inbox',
+          tabBarIcon: ({ color, size }) => <Inbox size={size} color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="activity"
-        options={{
-          title: 'Activity',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="time" size={size} color={color} />
-          ),
-        }}
-      />
+      
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person" size={size} color={color} />
+          title: '',
+          tabBarIcon: ({ focused }) => (
+            <View style={{
+              width: 28,
+              height: 28,
+              borderRadius: 14,
+              overflow: 'hidden',
+              borderWidth: focused ? 2 : 0,
+              borderColor: '#00D4FF',
+            }}>
+              <Image 
+                source={{ uri: 'https://via.placeholder.com/100' }}
+                style={{ width: '100%', height: '100%' }}
+              />
+            </View>
           ),
         }}
       />

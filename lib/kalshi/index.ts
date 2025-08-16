@@ -16,7 +16,4 @@ export type {
   CreateOrderRequest,
   MarketResolution,
 } from './types';
-export type {
-  AppPrediction,
-  AppEvent,
-} from './transformer';
+// Removed export of AppPrediction and AppEvent from './transformer' because they are not exported from that module.

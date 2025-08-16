@@ -1,251 +1,225 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'expo-image';
 import { tokens } from '../../theme/tokens';
+import * as Haptics from 'expo-haptics';
 
 interface Prediction {
   id: string;
   title: string;
-  description: string;
   category: string;
-  endDate: string;
-  totalVolume: number;
-  participants: number;
-  status: 'open' | 'closed' | 'settled';
-  yesPrice?: number;
-  noPrice?: number;
-  liquidity?: number;
-  ticker?: string;
-  marketType?: string;
+  imageUri?: string;
+  trending?: boolean;
+  currentOdds: {
+    yes: number;
+    no: number;
+  };
+  volume: number;
+  closesAt: string;
 }
 
 interface MarketCardProps {
   prediction: Prediction;
-  rank: number;
-  onPress?: () => void;
+  rank?: number;
+  onPress?: (prediction: Prediction) => void;
 }
 
-export function MarketCard({ prediction, rank, onPress }: MarketCardProps) {
-  const formatVolume = (volume: number) => {
-    if (volume >= 1000000) {
-      return `$${(volume / 1000000).toFixed(1)}M`;
-    } else if (volume >= 1000) {
-      return `$${(volume / 1000).toFixed(1)}K`;
-    }
-    return `$${volume}`;
+export const MarketCard: React.FC<MarketCardProps> = ({ prediction, rank, onPress }) => {
+  const handlePress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onPress?.(prediction);
   };
 
-  const formatPrice = (price: number) => {
-    return `$${(price / 100).toFixed(2)}`;
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'open':
-        return tokens.colors.success;
-      case 'closed':
-        return tokens.colors.warning;
-      case 'settled':
-        return tokens.colors.blue;
-      default:
-        return tokens.colors.color3;
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = date.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays < 0) {
-      return 'Expired';
-    } else if (diffDays === 0) {
-      return 'Today';
-    } else if (diffDays === 1) {
-      return 'Tomorrow';
-    } else if (diffDays < 7) {
-      return `${diffDays} days`;
-    } else {
-      return date.toLocaleDateString();
-    }
-  };
+  // Safety check for required properties
+  if (!prediction || !prediction.title || !prediction.currentOdds) {
+    return null;
+  }
 
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress}>
-      <View style={styles.rankContainer}>
-        <Text style={styles.rank}>#{rank}</Text>
-      </View>
+    <TouchableOpacity style={styles.container} onPress={handlePress}>
+      {rank && (
+        <View style={styles.rankBadge}>
+          <Text style={styles.rankText}>#{rank}</Text>
+        </View>
+      )}
       
       <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.title} numberOfLines={2}>
-            {prediction.title}
-          </Text>
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(prediction.status) }]}>
-            <Text style={styles.statusText}>
-              {prediction.status.charAt(0).toUpperCase() + prediction.status.slice(1)}
-            </Text>
-          </View>
-        </View>
-        
-        <Text style={styles.description} numberOfLines={2}>
-          {prediction.description}
-        </Text>
-        
-        <View style={styles.meta}>
-          <View style={styles.metaItem}>
-            <Text style={styles.metaLabel}>Volume</Text>
-            <Text style={styles.metaValue}>{formatVolume(prediction.totalVolume)}</Text>
-          </View>
-          
-          <View style={styles.metaItem}>
-            <Text style={styles.metaLabel}>Participants</Text>
-            <Text style={styles.metaValue}>{prediction.participants}</Text>
-          </View>
-          
-          <View style={styles.metaItem}>
-            <Text style={styles.metaLabel}>Ends</Text>
-            <Text style={styles.metaValue}>{formatDate(prediction.endDate)}</Text>
-          </View>
-        </View>
-
-        {prediction.yesPrice !== undefined && prediction.noPrice !== undefined && (
-          <View style={styles.pricing}>
-            <View style={styles.priceItem}>
-              <Text style={styles.priceLabel}>Yes</Text>
-              <Text style={styles.priceValue}>{formatPrice(prediction.yesPrice)}</Text>
-            </View>
-            <View style={styles.priceItem}>
-              <Text style={styles.priceLabel}>No</Text>
-              <Text style={styles.priceValue}>{formatPrice(prediction.noPrice)}</Text>
-            </View>
-          </View>
+        {prediction.imageUri && (
+          <Image 
+            source={{ uri: prediction.imageUri }} 
+            style={styles.thumbnail}
+            contentFit="cover"
+          />
         )}
         
-        <View style={styles.categoryContainer}>
-          <Text style={styles.category}>{prediction.category}</Text>
-          {prediction.ticker && (
-            <Text style={styles.ticker}>{prediction.ticker}</Text>
-          )}
+        <View style={styles.info}>
+          <View style={styles.header}>
+            <View style={[styles.categoryBadge, { backgroundColor: getCategoryColor(prediction.category) }]}>
+              <Text style={styles.categoryText}>{prediction.category?.toUpperCase() || 'OTHER'}</Text>
+            </View>
+            {prediction.trending && (
+              <Text style={styles.trendingBadge}>🔥 HOT</Text>
+            )}
+          </View>
+          
+          <Text style={styles.title} numberOfLines={2}>{prediction.title}</Text>
+          
+          <View style={styles.oddsContainer}>
+            <View style={styles.oddsBar}>
+              <LinearGradient
+                colors={['#4FC3F7', '#2DA9E0']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[styles.oddsProgress, { width: `${prediction.currentOdds.yes || 0}%` }]}
+              />
+            </View>
+            <View style={styles.oddsLabels}>
+              <Text style={[styles.oddsText, { color: tokens.colors.blue }]}>
+                YES {prediction.currentOdds.yes || 0}%
+              </Text>
+              <Text style={[styles.oddsText, { color: tokens.colors.red }]}>
+                NO {prediction.currentOdds.no || 0}%
+              </Text>
+            </View>
+          </View>
+          
+          <View style={styles.footer}>
+            <Text style={styles.volumeText}>
+              {formatVolume(prediction.volume || 0)} trades
+            </Text>
+            <Text style={styles.closesText}>
+              Closes {prediction.closesAt || 'Unknown'}
+            </Text>
+          </View>
         </View>
       </View>
     </TouchableOpacity>
   );
+};
+
+function getCategoryColor(category: string): string {
+  const colors = {
+    sports: tokens.colors.blue,
+    music: tokens.colors.purple,
+    movies: tokens.colors.gold,
+    viral: tokens.colors.blueStrong,
+    other: tokens.colors.surface2,
+  };
+  return colors[category as keyof typeof colors] || colors.other;
+}
+
+function formatVolume(volume: number): string {
+  if (volume >= 1000000) return `${(volume / 1000000).toFixed(1)}M`;
+  if (volume >= 1000) return `${(volume / 1000).toFixed(1)}K`;
+  return volume.toString();
 }
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
     backgroundColor: tokens.colors.surface,
-    marginHorizontal: 20,
-    marginBottom: 16,
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: tokens.colors.cardShadow,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 16,
+    padding: 12,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowRadius: 8,
     elevation: 3,
   },
-  rankContainer: {
-    width: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 16,
+  rankBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: tokens.colors.primary,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    zIndex: 1,
   },
-  rank: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: tokens.colors.blue,
+  rankText: {
+    color: tokens.colors.white,
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   content: {
+    flexDirection: 'row',
+  },
+  thumbnail: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  info: {
     flex: 1,
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: 8,
   },
-  title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: tokens.colors.color,
-    flex: 1,
-    marginRight: 8,
-  },
-  statusBadge: {
+  categoryBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: 12,
+    marginRight: 8,
   },
-  statusText: {
-    color: tokens.colors.background,
-    fontSize: 12,
-    fontWeight: '600',
+  categoryText: {
+    color: tokens.colors.white,
+    fontSize: 10,
+    fontWeight: 'bold',
   },
-  description: {
+  trendingBadge: {
+    backgroundColor: tokens.colors.red,
+    color: tokens.colors.white,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  title: {
     fontSize: 16,
-    color: tokens.colors.color2,
+    fontWeight: '600',
+    color: tokens.colors.text,
     marginBottom: 12,
     lineHeight: 20,
   },
-  meta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  oddsContainer: {
     marginBottom: 12,
   },
-  metaItem: {
-    alignItems: 'center',
-  },
-  metaLabel: {
-    fontSize: 12,
-    color: tokens.colors.color3,
-    marginBottom: 2,
-  },
-  metaValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: tokens.colors.color,
-  },
-  pricing: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+  oddsBar: {
+    height: 8,
     backgroundColor: tokens.colors.surface2,
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
+    borderRadius: 4,
+    marginBottom: 8,
+    overflow: 'hidden',
   },
-  priceItem: {
-    alignItems: 'center',
+  oddsProgress: {
+    height: '100%',
+    borderRadius: 4,
   },
-  priceLabel: {
+  oddsLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  oddsText: {
     fontSize: 12,
-    color: tokens.colors.color3,
-    marginBottom: 4,
+    fontWeight: '600',
   },
-  priceValue: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: tokens.colors.color,
-  },
-  categoryContainer: {
+  footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  category: {
+  volumeText: {
     fontSize: 12,
-    color: tokens.colors.blue,
-    backgroundColor: tokens.colors.blue + '20',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 20,
-    fontWeight: '600',
+    color: tokens.colors.textSecondary,
   },
-  ticker: {
-    fontSize: 10,
-    color: tokens.colors.color3,
-    fontFamily: 'monospace',
+  closesText: {
+    fontSize: 12,
+    color: tokens.colors.textSecondary,
   },
 });

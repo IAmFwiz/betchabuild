@@ -1,152 +1,317 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { View, SafeAreaView, StyleSheet, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { SwipeableCard } from '../../components/ui/SwipeableCard';
-import { CartFloatingButton } from '../../components/ui/CartFloatingButton';
-import { useCartStore } from '../../store/cartStore';
-import { useKalshiStore } from '../../store/kalshiStore';
-import { useUserStore } from '../../store/userStore';
-import { tokens } from '../../theme/tokens';
-import * as Haptics from 'expo-haptics';
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  Image, 
+  SafeAreaView,
+  Dimensions,
+  Platform,
+  StatusBar,
+  PanResponder,
+  Animated,
+  ActivityIndicator
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { getCategoryColor } from '../../utils/imageService';
+import kalshiService from '../../services/kalshiService';
 
-export default function SwipeFeedScreen() {
-  const { predictions, loading, fetchPredictions, refreshIfNeeded } = useKalshiStore();
-  const { addToCart, items } = useCartStore();
-  const { user } = useUserStore();
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [sessionPredictions, setSessionPredictions] = useState<any[]>([]);
+const { width: screenWidth } = Dimensions.get('window');
 
+// Sample bet data - replace with real API data later
+const sampleBets = [
+  {
+    id: 1,
+    category: 'SPORTS',
+    question: 'Will the Lakers win the NBA Championship?',
+    image: 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=800',
+    yesPercentage: 65,
+    noPercentage: 35,
+  },
+  {
+    id: 2,
+    category: 'POLITICS',
+    question: 'Will inflation drop below 3% by December?',
+    image: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800',
+    yesPercentage: 45,
+    noPercentage: 55,
+  },
+  {
+    id: 3,
+    category: 'SPORTS',
+    question: 'Will the Chiefs make the playoffs?',
+    image: 'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=800',
+    yesPercentage: 88,
+    noPercentage: 12,
+  },
+];
+
+export default function HomeTab() {
+  const [balance, setBalance] = useState(1000);
+  const [streak, setStreak] = useState(0);
+  const [currentCardIndex, setCurrentCardIndex] = useState(0);
+  const [bets, setBets] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Animation values for swipe
+  const position = useRef(new Animated.ValueXY()).current;
+  const rotateCard = position.x.interpolate({
+    inputRange: [-screenWidth / 2, 0, screenWidth / 2],
+    outputRange: ['-10deg', '0deg', '10deg'],
+  });
+  
+  // Load markets from Kalshi
   useEffect(() => {
-    fetchPredictions();
+    loadMarkets();
   }, []);
-
-  useEffect(() => {
-    // Refresh data every time screen comes into focus
-    const interval = setInterval(() => {
-      refreshIfNeeded();
-    }, 30000); // Check every 30 seconds
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleSwipeRight = useCallback((prediction: any) => {
-    // YES vote
-    addToCart(prediction, 'yes');
-    setSessionPredictions(prev => [...prev, { ...prediction, userChoice: 'yes' }]);
-    setCurrentIndex(prev => prev + 1);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  }, [addToCart]);
-
-  const handleSwipeLeft = useCallback((prediction: any) => {
-    // NO vote
-    addToCart(prediction, 'no');
-    setSessionPredictions(prev => [...prev, { ...prediction, userChoice: 'no' }]);
-    setCurrentIndex(prev => prev + 1);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-  }, [addToCart]);
-
-  const handleSwipeUp = useCallback(() => {
-    // Skip to next
-    setCurrentIndex(prev => prev + 1);
-  }, []);
-
-  const handleSwipeDown = useCallback(() => {
-    // Go back (if implemented)
-    if (currentIndex > 0) {
-      setCurrentIndex(prev => prev - 1);
+  
+  const loadMarkets = async () => {
+    setLoading(true);
+    try {
+      const markets = await kalshiService.getMarkets();
+      setBets(markets);
+    } catch (error) {
+      console.error('Error loading markets:', error);
+      // Fall back to sample data if needed
+      setBets(sampleBets);
+    } finally {
+      setLoading(false);
     }
-  }, [currentIndex]);
+  };
+  
+  const currentBet = bets[currentCardIndex];
 
-  const handleRefresh = useCallback(async () => {
-    setCurrentIndex(0);
-    setSessionPredictions([]);
-    await fetchPredictions();
-  }, [fetchPredictions]);
+  // Create pan responder for swipe gestures
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: (_, gesture) => {
+        position.setValue({ x: gesture.dx, y: gesture.dy });
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dx > 120) {
+          // Swipe right - YES
+          handleYes();
+        } else if (gesture.dx < -120) {
+          // Swipe left - NO
+          handleNo();
+        } else if (gesture.dy < -80) {
+          // Swipe up - SKIP
+          handleSkip();
+        } else {
+          // Spring back to center
+          Animated.spring(position, {
+            toValue: { x: 0, y: 0 },
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
 
-  if (loading && predictions.length === 0) {
+  const handleNo = async () => {
+    console.log('Bet NO on:', currentBet.question);
+    
+    // Place bet
+    await kalshiService.placeBet(currentBet.id, 'no', 10);
+    setBalance(prev => prev - 10);
+    
+    Animated.timing(position, {
+      toValue: { x: -screenWidth * 1.5, y: 0 },
+      duration: 300,
+      useNativeDriver: true,
+    }).start(() => {
+      position.setValue({ x: 0, y: 0 });
+      nextCard();
+    });
+  };
+
+  const handleYes = async () => {
+    console.log('Bet YES on:', currentBet.question);
+    
+    // Place bet
+    await kalshiService.placeBet(currentBet.id, 'yes', 10);
+    setBalance(prev => prev - 10);
+    setStreak(prev => prev + 1);
+    
+    Animated.timing(position, {
+      toValue: { x: screenWidth * 1.5, y: 0 },
+      duration: 300,
+      useNativeDriver: true,
+    }).start(() => {
+      position.setValue({ x: 0, y: 0 });
+      nextCard();
+    });
+  };
+
+  const handleSkip = () => {
+    console.log('Skipped (not interested):', currentBet.question);
+    Animated.timing(position, {
+      toValue: { x: 0, y: -screenWidth * 1.5 },
+      duration: 300,
+    }).start(() => {
+      position.setValue({ x: 0, y: 0 });
+      nextCard();
+    });
+  };
+
+  const nextCard = () => {
+    if (currentCardIndex < bets.length - 1) {
+      setCurrentCardIndex(currentCardIndex + 1);
+    } else {
+      // Load more bets when we run out
+      loadMarkets();
+      setCurrentCardIndex(0);
+    }
+  };
+
+  if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={tokens.colors.blue} />
-          <Text style={styles.loadingText}>Loading predictions...</Text>
-        </View>
-      </SafeAreaView>
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#00D4FF" />
+        <Text style={styles.loadingText}>Loading markets...</Text>
+      </View>
     );
   }
 
-  const visiblePredictions = predictions.slice(currentIndex, currentIndex + 3);
+  if (!currentBet) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <Text style={styles.emptyText}>No markets available</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={loadMarkets}>
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.logo}>Betcha</Text>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.balanceBadge}>
-            <Text style={styles.balanceText}>${user?.virtualBalance.toFixed(0) || '1000'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.streakBadge}>
-            <Text style={styles.streakText}>🔥 {user?.currentStreak || 0}</Text>
-          </TouchableOpacity>
+      <StatusBar barStyle="light-content" />
+      
+      {/* Header with gradient */}
+      <LinearGradient
+        colors={['#000', 'transparent']}
+        style={styles.headerGradient}>
+        <View style={styles.header}>
+          <Image 
+            source={require('../../assets/betcha-new-v2.png')} 
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <View style={styles.statsContainer}>
+            <View style={styles.balanceContainer}>
+              <Text style={styles.balanceLabel}>Balance</Text>
+              <Text style={styles.balance}>${balance.toLocaleString()}</Text>
+            </View>
+            <View style={styles.streakContainer}>
+              <Text style={styles.streak}>🔥 {streak}</Text>
+            </View>
+          </View>
+        </View>
+      </LinearGradient>
+
+      {/* Card */}
+      <View style={styles.cardContainer}>
+        <Animated.View 
+          style={[
+            styles.card,
+            {
+              transform: [
+                { translateX: position.x },
+                { translateY: position.y },
+                { rotate: rotateCard },
+              ],
+            },
+          ]}
+          {...panResponder.panHandlers}>
+          <Image source={{ uri: currentBet.image }} style={styles.cardImage} />
+          
+          <View style={styles.cardContent}>
+            <View 
+              style={[
+                styles.categoryBadge,
+                { backgroundColor: getCategoryColor(currentBet.category) }
+              ]}>
+              <Text style={styles.categoryText}>{currentBet.category}</Text>
+            </View>
+            
+            <Text style={styles.question}>{currentBet.question}</Text>
+          </View>
+          
+          {/* Swipe indicators */}
+          <Animated.View 
+            style={[
+              styles.swipeIndicator,
+              styles.yesIndicator,
+              {
+                opacity: position.x.interpolate({
+                  inputRange: [0, 100],
+                  outputRange: [0, 1],
+                  extrapolate: 'clamp',
+                }),
+              },
+            ]}>
+            <Text style={styles.swipeText}>YES</Text>
+          </Animated.View>
+          
+          <Animated.View 
+            style={[
+              styles.swipeIndicator,
+              styles.noIndicator,
+              {
+                opacity: position.x.interpolate({
+                  inputRange: [-100, 0],
+                  outputRange: [1, 0],
+                  extrapolate: 'clamp',
+                }),
+              },
+            ]}>
+            <Text style={styles.swipeText}>NO</Text>
+          </Animated.View>
+        </Animated.View>
+
+        {/* Card counter */}
+        <View style={styles.cardCounter}>
+          {bets.map((_, index) => (
+            <View 
+              key={index}
+              style={[
+                styles.dot,
+                index === currentCardIndex && styles.activeDot
+              ]} 
+            />
+          ))}
         </View>
       </View>
 
-      <View style={styles.cardContainer}>
-        {visiblePredictions.reverse().map((prediction, index) => (
-          <SwipeableCard
-            key={`${prediction.id}-${currentIndex}`}
-            prediction={prediction}
-            onSwipeRight={() => handleSwipeRight(prediction)}
-            onSwipeLeft={() => handleSwipeLeft(prediction)}
-            onSwipeUp={handleSwipeUp}
-            onSwipeDown={handleSwipeDown}
-            isTopCard={index === visiblePredictions.length - 1}
-          />
-        ))}
-        
-        {visiblePredictions.length === 0 && (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>🎯</Text>
-            <Text style={styles.emptyText}>No more predictions!</Text>
-            <Text style={styles.emptySubtext}>Check back soon or refresh for new markets</Text>
-            <TouchableOpacity style={styles.refreshButton} onPress={handleRefresh}>
-              <Text style={styles.refreshText}>Refresh Feed</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-
-      <View style={styles.bottomControls}>
-        <TouchableOpacity 
+      {/* Action Buttons */}
+      <View style={styles.buttonContainer}>
+        <TouchableOpacity
           style={[styles.actionButton, styles.noButton]}
-          onPress={() => visiblePredictions[visiblePredictions.length - 1] && handleSwipeLeft(visiblePredictions[visiblePredictions.length - 1])}
-          disabled={visiblePredictions.length === 0}
-        >
+          onPress={handleNo}
+          activeOpacity={0.8}>
           <Text style={styles.buttonText}>NO</Text>
+          <Text style={styles.percentageButtonText}>{currentBet.noPercentage}%</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity 
-          style={styles.skipButton}
-          onPress={handleSwipeUp}
-          disabled={visiblePredictions.length === 0}
-        >
-          <TouchableOpacity 
-            style={styles.skipButton}
-            onPress={handleSwipeUp}
-            disabled={visiblePredictions.length === 0}
-          >
-            <Text style={styles.skipText}>SKIP</Text>
-          </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.skipButton]}
+          onPress={handleSkip}
+          activeOpacity={0.8}>
+          <Text style={styles.skipButtonText}>SKIP</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.actionButton, styles.yesButton]}
-          onPress={() => visiblePredictions[visiblePredictions.length - 1] && handleSwipeRight(visiblePredictions[visiblePredictions.length - 1])}
-          disabled={visiblePredictions.length === 0}
-        >
+          onPress={handleYes}
+          activeOpacity={0.8}>
           <Text style={styles.buttonText}>YES</Text>
+          <Text style={styles.percentageButtonText}>{currentBet.yesPercentage}%</Text>
         </TouchableOpacity>
       </View>
-
-      {items.length > 0 && <CartFloatingButton />}
     </SafeAreaView>
   );
 }
@@ -154,129 +319,228 @@ export default function SwipeFeedScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: tokens.colors.background,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    color: tokens.colors.color2,
-    marginTop: 16,
-    fontSize: 16,
+    backgroundColor: '#000',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 10,
+    paddingTop: Platform.OS === 'ios' ? 10 : 30,
+    paddingBottom: 15,
   },
   logo: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: tokens.colors.blue,
+    width: 270,
+    height: 90,
+    marginLeft: -50,
+    alignSelf: 'flex-start',
   },
-  headerRight: {
+  statsContainer: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    gap: 12,
   },
-  balanceBadge: {
-    backgroundColor: tokens.colors.surface2,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  balanceText: {
-    color: tokens.colors.blue,
+  balance: {
+    fontSize: 20,
+    color: '#34C759',
     fontWeight: '700',
   },
-  streakBadge: {
-    backgroundColor: tokens.colors.surface2,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+  streak: {
+    fontSize: 16,
+    color: '#FF9500',
+    fontWeight: '600',
   },
-  streakText: {
-    color: tokens.colors.gold,
-    fontWeight: '700',
+  headerGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 150,
+    zIndex: 1,
+  },
+  balanceContainer: {
+    alignItems: 'flex-end',
+  },
+  balanceLabel: {
+    fontSize: 10,
+    color: '#8E8E93',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  streakContainer: {
+    backgroundColor: 'rgba(255, 149, 0, 0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
   },
   cardContainer: {
     flex: 1,
-    marginHorizontal: 20,
-    marginVertical: 20,
-    position: 'relative',
+    padding: 20,
+    paddingTop: 100,
   },
-  bottomControls: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-    paddingBottom: 20,
-  },
-  actionButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: tokens.colors.cardShadow,
-    shadowOffset: { width: 0, height: 4 },
+  card: {
+    flex: 1,
+    borderRadius: 24,
+    backgroundColor: '#1C1C1E',
+    overflow: 'hidden',
+    shadowColor: '#00D4FF',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
     shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 8,
   },
-  yesButton: {
-    backgroundColor: tokens.colors.blue,
+  cardImage: {
+    width: '100%',
+    height: '55%',
+    backgroundColor: '#2C2C2E',
+  },
+  cardContent: {
+    flex: 1,
+    padding: 20,
+  },
+  categoryBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    marginBottom: 16,
+  },
+  categoryText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  question: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#FFF',
+    marginBottom: 24,
+    lineHeight: 32,
+  },
+  cardCounter: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    paddingTop: 20,
+    gap: 8,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#3A3A3C',
+  },
+  activeDot: {
+    backgroundColor: '#00D4FF',
+    width: 24,
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
+    paddingVertical: 20,
+    paddingHorizontal: 30,
+    paddingBottom: 30,
+  },
+  actionButton: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
   },
   noButton: {
-    backgroundColor: tokens.colors.red,
+    backgroundColor: '#FF3B30',
+    transform: [{ scale: 1 }],
   },
   skipButton: {
-    backgroundColor: tokens.colors.surface2,
+    backgroundColor: '#48484A',
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+  },
+  yesButton: {
+    backgroundColor: '#34C759',
+    transform: [{ scale: 1 }],
+  },
+  buttonText: {
+    color: '#FFF',
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  percentageButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '600',
+    opacity: 0.9,
+    marginTop: 2,
+  },
+  skipButtonText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  emptyText: {
+    color: '#8E8E93',
+    fontSize: 18,
+    textAlign: 'center',
+    marginTop: 100,
+  },
+  swipeIndicator: {
+    position: 'absolute',
+    top: '45%',
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 20,
+    borderWidth: 3,
   },
-  buttonText: {
-    color: tokens.colors.background,
-    fontSize: 20,
+  yesIndicator: {
+    right: 20,
+    borderColor: '#34C759',
+    backgroundColor: 'rgba(52, 199, 89, 0.1)',
+  },
+  noIndicator: {
+    left: 20,
+    borderColor: '#FF3B30',
+    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+  },
+  swipeText: {
+    fontSize: 24,
     fontWeight: '800',
+    color: '#FFF',
   },
-  skipText: {
-    color: tokens.colors.color3,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  emptyState: {
-    flex: 1,
+  centerContent: {
     justifyContent: 'center',
     alignItems: 'center',
   },
-  emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-  emptyText: {
-    color: tokens.colors.color,
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    color: tokens.colors.color3,
+  loadingText: {
+    color: '#8E8E93',
     fontSize: 16,
-    marginBottom: 24,
+    marginTop: 20,
   },
-  refreshButton: {
-    backgroundColor: tokens.colors.blue,
-    paddingHorizontal: 24,
+  retryButton: {
+    marginTop: 20,
+    paddingHorizontal: 30,
     paddingVertical: 12,
+    backgroundColor: '#00D4FF',
     borderRadius: 20,
   },
-  refreshText: {
-    color: tokens.colors.background,
-    fontWeight: '700',
+  retryText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

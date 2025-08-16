@@ -1,290 +1,270 @@
 import { supabase } from '../lib/supabase/client';
-import { AppPrediction } from '../lib/kalshi/transformer';
 
-interface UserPreferences {
-  categories: Record<string, { yes: number; no: number; skip: number }>;
-  keywords: Record<string, { yes: number; no: number; skip: number }>;
-  lastUpdated: Date;
+interface Prediction {
+  id: string;
+  title: string;
+  category: string;
+  imageUri?: string;
+  currentOdds: {
+    yes: number;
+    no: number;
+  };
+  volume: number;
+  closesAt: string;
 }
 
-interface InteractionAction {
-  userId: string;
-  predictionId: string;
-  action: 'yes' | 'no' | 'skip';
+interface UserInteraction {
+  user_id: string;
+  prediction_id: string;
   category: string;
+  action: 'yes' | 'no' | 'skip';
   keywords: string[];
-  timestamp: Date;
+  timestamp: string;
+}
+
+interface UserPreference {
+  user_id: string;
+  category: string;
+  yes_count: number;
+  no_count: number;
+  skip_count: number;
+  total_interactions: number;
+  preference_score: number;
+}
+
+interface UserPreferenceRow extends UserPreference {
+  id: string;
+  created_at: string;
+  updated_at: string;
 }
 
 class UserPreferenceService {
-  private userInteractions = new Map<string, UserPreferences>();
-
-  /**
-   * Track user interaction with a prediction
-   */
-  async trackInteraction(
-    userId: string, 
-    prediction: AppPrediction, 
-    action: 'yes' | 'no' | 'skip'
-  ): Promise<void> {
+  async trackSwipe(userId: string, prediction: Prediction, action: 'yes' | 'no' | 'skip'): Promise<void> {
     try {
-      // Update local cache
-      if (!this.userInteractions.has(userId)) {
-        this.userInteractions.set(userId, {
-          categories: {},
-          keywords: {},
-          lastUpdated: new Date(),
-        });
+      // Track in database
+      const { error: interactionError } = await supabase
+        .from('user_interactions')
+        .insert({
+          user_id: userId,
+          prediction_id: prediction.id,
+          category: prediction.category,
+          action: action,
+          keywords: this.extractKeywords(prediction.title),
+          timestamp: new Date().toISOString(),
+        } as UserInteraction);
+
+      if (interactionError) {
+        console.error('Error inserting interaction:', interactionError);
+        return;
       }
 
-      const prefs = this.userInteractions.get(userId)!;
-      
-      // Track category preference
-      if (!prefs.categories[prediction.category]) {
-        prefs.categories[prediction.category] = { yes: 0, no: 0, skip: 0 };
-      }
-      prefs.categories[prediction.category][action]++;
-
-      // Track keyword preferences
-      const keywords = this.extractKeywords(prediction.title);
-      keywords.forEach(keyword => {
-        if (!prefs.keywords[keyword]) {
-          prefs.keywords[keyword] = { yes: 0, no: 0, skip: 0 };
-        }
-        prefs.keywords[keyword][action]++;
-      });
-
-      prefs.lastUpdated = new Date();
-
-      // Save to database
-      await this.savePreferences(userId, prefs);
-      
-      // Save interaction log
-      await this.saveInteraction({
-        userId,
-        predictionId: prediction.id,
-        action,
-        category: prediction.category,
-        keywords,
-        timestamp: new Date(),
-      });
-
+      // Update user preferences
+      await this.updatePreferences(userId, prediction, action);
     } catch (error) {
-      console.error('Error tracking user interaction:', error);
+      console.error('Error tracking swipe:', error);
     }
   }
 
-  /**
-   * Get personalized feed based on user preferences
-   */
-  async getPersonalizedFeed(userId: string, allPredictions: AppPrediction[]): Promise<AppPrediction[]> {
+  async updatePreferences(userId: string, prediction: Prediction, action: 'yes' | 'no' | 'skip'): Promise<void> {
     try {
-      // Load preferences if not in cache
-      if (!this.userInteractions.has(userId)) {
-        await this.loadPreferences(userId);
+      const { data: existing, error: fetchError } = await supabase
+        .from('user_preferences')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('category', prediction.category)
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 = no rows returned
+        console.error('Error fetching preferences:', fetchError);
+        return;
       }
 
-      const prefs = this.userInteractions.get(userId);
-      if (!prefs) return allPredictions;
+      if (existing) {
+        const updates = {
+          [`${action}_count`]: existing[`${action}_count` as keyof UserPreference] + 1,
+          total_interactions: existing.total_interactions + 1,
+          preference_score: this.calculateScore(
+            existing.yes_count + (action === 'yes' ? 1 : 0),
+            existing.no_count + (action === 'no' ? 1 : 0),
+            existing.skip_count + (action === 'skip' ? 1 : 0)
+          ),
+          updated_at: new Date().toISOString(),
+        };
 
-      // Sort predictions by personalization score
-      return allPredictions.sort((a, b) => {
-        const scoreA = this.calculateScore(a, prefs);
-        const scoreB = this.calculateScore(b, prefs);
+        const { error: updateError } = await supabase
+          .from('user_preferences')
+          .update(updates)
+          .eq('user_id', userId)
+          .eq('category', prediction.category);
+
+        if (updateError) {
+          console.error('Error updating preferences:', updateError);
+        }
+      } else {
+        const newPreference: UserPreference = {
+          user_id: userId,
+          category: prediction.category,
+          yes_count: action === 'yes' ? 1 : 0,
+          no_count: action === 'no' ? 1 : 0,
+          skip_count: action === 'skip' ? 1 : 0,
+          total_interactions: 1,
+          preference_score: action === 'yes' ? 1 : action === 'no' ? -1 : 0,
+        };
+
+        const { error: insertError } = await supabase
+          .from('user_preferences')
+          .insert(newPreference);
+
+        if (insertError) {
+          console.error('Error inserting preferences:', insertError);
+        }
+      }
+    } catch (error) {
+      console.error('Error updating preferences:', error);
+    }
+  }
+
+  calculateScore(yes: number, no: number, skip: number): number {
+    const total = yes + no + skip;
+    if (total === 0) return 0;
+    
+    // Weighted scoring: yes = +2, no = -1, skip = -0.5
+    return ((yes * 2) - no - (skip * 0.5)) / total;
+  }
+
+  async getPersonalizedFeed(userId: string): Promise<Prediction[]> {
+    try {
+      // Get user preferences
+      const { data: preferences, error: prefError } = await supabase
+        .from('user_preferences')
+        .select('*')
+        .eq('user_id', userId)
+        .order('preference_score', { ascending: false });
+
+      if (prefError) {
+        console.error('Error fetching preferences:', prefError);
+        return [];
+      }
+
+      // Get predictions and sort by user preferences
+      const predictions = await this.fetchPredictions();
+      
+      return predictions.sort((a, b) => {
+        const scoreA = this.getPreferenceScore(a, preferences || []);
+        const scoreB = this.getPreferenceScore(b, preferences || []);
         return scoreB - scoreA;
       });
-
     } catch (error) {
       console.error('Error getting personalized feed:', error);
-      return allPredictions;
-    }
-  }
-
-  /**
-   * Get user's top categories
-   */
-  async getTopCategories(userId: string): Promise<string[]> {
-    try {
-      if (!this.userInteractions.has(userId)) {
-        await this.loadPreferences(userId);
-      }
-
-      const prefs = this.userInteractions.get(userId);
-      if (!prefs) return [];
-
-      return Object.entries(prefs.categories)
-        .map(([category, stats]) => ({
-          category,
-          total: stats.yes + stats.no + stats.skip,
-          engagement: (stats.yes * 2) + stats.no - stats.skip,
-        }))
-        .sort((a, b) => b.engagement - a.engagement)
-        .map(item => item.category);
-
-    } catch (error) {
-      console.error('Error getting top categories:', error);
       return [];
     }
   }
 
-  /**
-   * Get user's top keywords
-   */
-  async getTopKeywords(userId: string): Promise<string[]> {
-    try {
-      if (!this.userInteractions.has(userId)) {
-        await this.loadPreferences(userId);
-      }
-
-      const prefs = this.userInteractions.get(userId);
-      if (!prefs) return [];
-
-      return Object.entries(prefs.keywords)
-        .map(([keyword, stats]) => ({
-          keyword,
-          total: stats.yes + stats.no + stats.skip,
-          engagement: (stats.yes * 1.5) + stats.no - (stats.skip * 0.5),
-        }))
-        .sort((a, b) => b.engagement - a.engagement)
-        .map(item => item.keyword)
-        .slice(0, 10); // Top 10 keywords
-
-    } catch (error) {
-      console.error('Error getting top keywords:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Calculate personalization score for a prediction
-   */
-  private calculateScore(prediction: AppPrediction, prefs: UserPreferences): number {
-    let score = 0;
+  private getPreferenceScore(prediction: Prediction, preferences: UserPreferenceRow[]): number {
+    const userPref = preferences.find(p => p.category === prediction.category);
+    if (!userPref) return 0;
     
-    // Category score (higher weight for categories user engages with)
-    const catPref = prefs.categories[prediction.category];
-    if (catPref) {
-      const total = catPref.yes + catPref.no + catPref.skip;
-      if (total > 0) {
-        score += (catPref.yes * 2) - catPref.skip - (catPref.no * 0.5);
-        score += total * 0.1; // Bonus for categories with more interactions
-      }
+    // Base score from user's category preference
+    let score = userPref.preference_score;
+    
+    // Bonus for categories with high interaction counts
+    if (userPref.total_interactions > 10) {
+      score += 0.2;
     }
-
-    // Keyword score
-    const keywords = this.extractKeywords(prediction.title);
-    keywords.forEach(keyword => {
-      const keyPref = prefs.keywords[keyword];
-      if (keyPref) {
-        const total = keyPref.yes + keyPref.no + keyPref.skip;
-        if (total > 0) {
-          score += (keyPref.yes * 1.5) - (keyPref.skip * 0.5) - keyPref.no;
-          score += total * 0.05; // Small bonus for keywords with more interactions
-        }
-      }
-    });
-
+    
+    // Bonus for trending predictions in preferred categories
+    if (prediction.volume > 1000000 && userPref.preference_score > 0.5) {
+      score += 0.3;
+    }
+    
     return score;
   }
 
-  /**
-   * Extract relevant keywords from prediction title
-   */
-  private extractKeywords(title: string): string[] {
-    const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'will', 'be', 'is', 'are', 'was', 'were']);
-    
-    return title
-      .toLowerCase()
-      .replace(/[^\w\s]/g, '')
-      .split(/\s+/)
-      .filter(word => word.length > 2 && !stopWords.has(word))
-      .slice(0, 5); // Limit to top 5 keywords
-  }
-
-  /**
-   * Save preferences to database
-   */
-  private async savePreferences(userId: string, prefs: UserPreferences): Promise<void> {
+  private async fetchPredictions(): Promise<Prediction[]> {
     try {
-      const { error } = await supabase
-        .from('user_preferences')
-        .upsert({
-          user_id: userId,
-          preferences: prefs,
-          updated_at: new Date().toISOString(),
-        });
-
-      if (error) throw error;
-
+      // This would typically fetch from your predictions API
+      // For now, returning empty array - implement based on your data source
+      return [];
     } catch (error) {
-      console.error('Error saving preferences:', error);
+      console.error('Error fetching predictions:', error);
+      return [];
     }
   }
 
-  /**
-   * Save interaction log to database
-   */
-  private async saveInteraction(interaction: InteractionAction): Promise<void> {
-    try {
-      const { error } = await supabase
-        .from('user_interactions')
-        .insert({
-          user_id: interaction.userId,
-          prediction_id: interaction.predictionId,
-          action: interaction.action,
-          category: interaction.category,
-          keywords: interaction.keywords,
-          timestamp: interaction.timestamp.toISOString(),
-        });
+  extractKeywords(title: string): string[] {
+    const patterns = [
+      // Music
+      /Taylor Swift|Drake|Beyonce|Kanye|BTS|Ariana Grande|The Weeknd|Post Malone|Ed Sheeran|Billie Eilish/gi,
+      // Sports
+      /NFL|NBA|MLB|NHL|UFC|FIFA|World Cup|Super Bowl|Champions League|Olympics/gi,
+      // Entertainment
+      /Marvel|Disney|Netflix|HBO|Oscar|Grammy|Emmy|Golden Globe|MTV|VMA/gi,
+      // Tech & Business
+      /Bitcoin|Ethereum|Tesla|Apple|Meta|Google|Amazon|Microsoft|SpaceX|OpenAI/gi,
+      // Politics
+      /Biden|Trump|Election|Congress|Senate|Supreme Court|Democrat|Republican/gi,
+      // Gaming
+      /PlayStation|Xbox|Nintendo|Steam|Epic|Fortnite|Minecraft|GTA|Call of Duty/gi,
+    ];
 
-      if (error) throw error;
-
-    } catch (error) {
-      console.error('Error saving interaction:', error);
-    }
-  }
-
-  /**
-   * Load preferences from database
-   */
-  private async loadPreferences(userId: string): Promise<void> {
-    try {
-      const { data, error } = await supabase
-        .from('user_preferences')
-        .select('preferences')
-        .eq('user_id', userId)
-        .single();
-
-      if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows returned
-
-      if (data?.preferences) {
-        this.userInteractions.set(userId, {
-          ...data.preferences,
-          lastUpdated: new Date(data.preferences.lastUpdated),
-        });
+    const keywords: string[] = [];
+    patterns.forEach(pattern => {
+      const matches = title.match(pattern);
+      if (matches) {
+        keywords.push(...matches.map(match => match.toLowerCase()));
       }
+    });
 
-    } catch (error) {
-      console.error('Error loading preferences:', error);
-    }
+    // Remove duplicates and return
+    return [...new Set(keywords)];
   }
 
-  /**
-   * Clear user preferences (for testing or privacy)
-   */
-  async clearPreferences(userId: string): Promise<void> {
+  async getUserStats(userId: string): Promise<{
+    totalInteractions: number;
+    favoriteCategory: string;
+    preferenceScore: number;
+    categories: { [key: string]: UserPreference };
+  }> {
     try {
-      this.userInteractions.delete(userId);
-      
-      const { error } = await supabase
+      const { data: preferences, error } = await supabase
         .from('user_preferences')
-        .delete()
+        .select('*')
         .eq('user_id', userId);
 
-      if (error) throw error;
+      if (error || !preferences) {
+        return {
+          totalInteractions: 0,
+          favoriteCategory: 'None',
+          preferenceScore: 0,
+          categories: {},
+        };
+      }
 
+      const totalInteractions = preferences.reduce((sum, pref) => sum + pref.total_interactions, 0);
+      const favoriteCategory = preferences.reduce((fav, pref) => 
+        pref.preference_score > (fav?.preference_score || -1) ? pref : fav
+      )?.category || 'None';
+      const avgPreferenceScore = preferences.reduce((sum, pref) => sum + pref.preference_score, 0) / preferences.length;
+
+      const categoriesMap = preferences.reduce((acc, pref) => {
+        acc[pref.category] = pref;
+        return acc;
+      }, {} as { [key: string]: UserPreference });
+
+      return {
+        totalInteractions,
+        favoriteCategory,
+        preferenceScore: avgPreferenceScore,
+        categories: categoriesMap,
+      };
     } catch (error) {
-      console.error('Error clearing preferences:', error);
+      console.error('Error getting user stats:', error);
+      return {
+        totalInteractions: 0,
+        favoriteCategory: 'None',
+        preferenceScore: 0,
+        categories: {},
+      };
     }
   }
 }
