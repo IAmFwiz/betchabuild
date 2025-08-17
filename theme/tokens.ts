@@ -1,97 +1,64 @@
 export const tokens = {
   colors: {
-    // Backgrounds
-    background: '#0B0B0F',
-    surface: '#12131A',
-    surface2: '#16161E',
-    outline: '#2A2B35',
+    // Core colors
+    primary: '#4FC3F7', // Baby blue
+    background: '#0A0A0B', // Deep black
+    surface: '#1A1A1C', // Card background
     
-    // Text
-    color: '#F2F2F5',
-    color2: '#C7CBD1',
-    color3: '#9AA0A6',
+    // Text colors
+    color: '#FFFFFF',
+    textSecondary: '#A0A0A0',
+    textMuted: '#6B6B6B',
     
-    // Primary accent (baby blue)
-    blue: '#4FC3F7',
-    blueStrong: '#2DA9E0',
-    blueSoft: '#AEE7FF',
+    // Action colors
+    success: '#22C55E', // Green for YES
+    error: '#EF4444', // Red for NO
+    warning: '#F59E0B',
+    info: '#3B82F6',
     
-    // Secondary accent
-    red: '#FF3B5C',
-    redStrong: '#D72D4C',
+    // Gradient colors
+    gradientGreenStart: 'rgba(34, 197, 94, 0.3)',
+    gradientGreenEnd: 'transparent',
+    gradientRedStart: 'rgba(239, 68, 68, 0.3)',
+    gradientRedEnd: 'transparent',
     
-    // Supporting
-    purple: '#9B5CFF',
-    gold: '#FFC857',
+    // Glass morphism
+    glassBackground: 'rgba(255, 255, 255, 0.05)',
+    glassBorder: 'rgba(255, 255, 255, 0.1)',
     
-    // Legacy colors for compatibility
-    primary: '#4FC3F7',
-    primaryLight: '#AEE7FF',
-    primaryDark: '#2DA9E0',
-    secondary: '#FF3B5C',
-    secondaryLight: '#FF6B8A',
-    secondaryDark: '#D72D4C',
-    success: '#34C759',
-    error: '#FF3B5C',
-    warning: '#FFC857',
-    yes: '#4FC3F7',
-    no: '#FF3B5C',
-    maybe: '#FFC857',
-    text: '#F2F2F5',
-    textSecondary: '#C7CBD1',
-    border: '#2A2B35',
-    cardBackground: '#12131A',
-    cardBorder: '#2A2B35',
-    cardShadow: 'rgba(79, 195, 247, 0.24)',
+    // Shadows and effects
+    shadowColor: '#000000',
+    glowColor: '#4FC3F7',
   },
   
-  gradients: {
-    yesGradient: ['#AEE7FF', '#4FC3F7'],
-    noGradient: ['#FFC0CB', '#FF3B5C'],
-  },
-  
-  shadows: {
-    cardGlow: 'rgba(79, 195, 247, 0.24)',
-    badgeGlow: 'rgba(155, 92, 255, 0.18)',
-    elevation: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.5,
-      shadowRadius: 24,
+  typography: {
+    fonts: {
+      regular: 'Inter_400Regular',
+      medium: 'Inter_500Medium',
+      semiBold: 'Inter_600SemiBold',
+      bold: 'Inter_700Bold',
     },
-    sm: {
-      shadowColor: 'rgba(0, 0, 0, 0.3)',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.3,
-      shadowRadius: 4,
-      elevation: 2,
+    sizes: {
+      xs: 12,
+      sm: 14,
+      md: 16,
+      lg: 18,
+      xl: 20,
+      xxl: 24,
+      xxxl: 32,
+      display: 48,
     },
-    md: {
-      shadowColor: 'rgba(0, 0, 0, 0.3)',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.4,
-      shadowRadius: 8,
-      elevation: 4,
+    weights: {
+      regular: '400',
+      medium: '500',
+      semiBold: '600',
+      bold: '700',
     },
-    lg: {
-      shadowColor: 'rgba(0, 0, 0, 0.3)',
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.5,
-      shadowRadius: 16,
-      elevation: 8,
+    lineHeights: {
+      tight: 1.2,
+      normal: 1.5,
+      relaxed: 1.75,
     },
-  },
-  
-  radius: {
-    card: 24,
-    pill: 999,
-    button: 16,
-    small: 8,
-    sm: 8,
-    md: 12,
-    lg: 16,
-    xl: 24,
-    full: 999,
   },
   
   spacing: {
@@ -102,66 +69,75 @@ export const tokens = {
     xl: 20,
     xxl: 24,
     xxxl: 32,
+    huge: 48,
   },
   
-  typography: {
-    fonts: {
-      body: 'Inter',
-      heading: 'Inter',
+  radius: {
+    sm: 4,
+    md: 8,
+    lg: 12,
+    xl: 16,
+    xxl: 24,
+    card: 20,
+    round: 999,
+  },
+  
+  shadows: {
+    sm: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 2,
+      elevation: 1,
     },
-    weights: {
-      regular: '400',
-      semibold: '600',
-      bold: '700',
-      heavy: '800',
+    md: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 2,
     },
-    sizes: {
-      xs: 12,
-      sm: 14,
-      md: 16,
-      lg: 18,
-      xl: 20,
-      xxl: 24,
-      xxxl: 28,
-      huge: 32,
-      giant: 40,
+    lg: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 8,
+      elevation: 4,
     },
-    h1: {
-      fontSize: 32,
-      fontWeight: '700',
-      lineHeight: 40,
+    xl: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.2,
+      shadowRadius: 16,
+      elevation: 8,
     },
-    h2: {
-      fontSize: 24,
-      fontWeight: '600',
-      lineHeight: 32,
-    },
-    h3: {
-      fontSize: 20,
-      fontWeight: '600',
-      lineHeight: 28,
-    },
-    body: {
-      fontSize: 16,
-      fontWeight: '400',
-      lineHeight: 24,
-    },
-    bodyBold: {
-      fontSize: 16,
-      fontWeight: '600',
-      lineHeight: 24,
-    },
-    caption: {
-      fontSize: 14,
-      fontWeight: '400',
-      lineHeight: 20,
-    },
-    captionBold: {
-      fontSize: 14,
-      fontWeight: '600',
-      lineHeight: 20,
+    glow: {
+      shadowColor: '#4FC3F7',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.3,
+      shadowRadius: 12,
+      elevation: 0,
     },
   },
-} as const;
+  
+  animations: {
+    fast: 150,
+    normal: 300,
+    slow: 500,
+  },
+  
+  glossEffect: {
+    overlay: {
+      colors: ['rgba(255,255,255,0.15)', 'rgba(255,255,255,0.08)', 'rgba(255,255,255,0.02)', 'transparent'],
+      start: { x: 0, y: 0 },
+      end: { x: 0.5, y: 0.5 },
+    },
+    shimmer: {
+      colors: ['transparent', 'rgba(255,255,255,0.1)', 'transparent'],
+      start: { x: 0, y: 0 },
+      end: { x: 1, y: 1 },
+    },
+  },
+};
 
-export type Tokens = typeof tokens;
+export default tokens;

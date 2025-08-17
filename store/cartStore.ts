@@ -1,106 +1,113 @@
 import { create } from 'zustand';
-import { AppPrediction } from '../lib/kalshi/transformer';
-import { predictionService } from '../services/predictionService';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface CartItem {
-  prediction: AppPrediction;
-  choice: 'yes' | 'no';
-  stake: number;
-  boosted: boolean;
+  predictionId: string;
+  prediction: {
+    id: string;
+    title: string;
+    category: string;
+    image_url?: string;
+    market_id?: string;
+    yes_price: number;
+    no_price: number;
+    end_date: string;
+  };
+  position: 'yes' | 'no';
+  amount: number;
 }
 
 interface CartStore {
-  items: CartItem[];
-  totalStake: number;
-  
-  addToCart: (prediction: AppPrediction, choice: 'yes' | 'no') => void;
+  cartItems: CartItem[];
+  totalAmount: number;
+  addToCart: (item: CartItem) => void;
   removeFromCart: (predictionId: string) => void;
-  updateStake: (predictionId: string, stake: number) => void;
-  boostPrediction: (predictionId: string) => void;
+  updateAmount: (predictionId: string, amount: number) => void;
   clearCart: () => void;
-  checkout: () => Promise<void>;
+  getCartCount: () => number;
 }
 
-export const useCartStore = create<CartStore>((set, get) => ({
-  items: [],
-  totalStake: 0,
+export const useCartStore = create<CartStore>()(
+  persist(
+    (set, get) => ({
+      cartItems: [],
+      totalAmount: 0,
 
-  addToCart: (prediction, choice) => {
-    set((state) => {
-      const exists = state.items.find(item => item.prediction.id === prediction.id);
-      if (exists) return state;
+      addToCart: (item: CartItem) => {
+        set((state) => {
+          // Check if item already exists
+          const existingItem = state.cartItems.find(
+            (cartItem) => cartItem.predictionId === item.predictionId
+          );
 
-      const newItems = [...state.items, {
-        prediction,
-        choice,
-        stake: 1,
-        boosted: false,
-      }];
+          if (existingItem) {
+            // Update existing item
+            return {
+              cartItems: state.cartItems.map((cartItem) =>
+                cartItem.predictionId === item.predictionId
+                  ? { ...cartItem, position: item.position, amount: item.amount }
+                  : cartItem
+              ),
+              totalAmount: state.cartItems.reduce(
+                (sum, cartItem) =>
+                  cartItem.predictionId === item.predictionId
+                    ? sum + item.amount
+                    : sum + cartItem.amount,
+                0
+              ),
+            };
+          }
 
-      return {
-        items: newItems,
-        totalStake: newItems.reduce((sum, item) => sum + item.stake, 0),
-      };
-    });
-  },
+          // Add new item
+          const newCartItems = [...state.cartItems, item];
+          return {
+            cartItems: newCartItems,
+            totalAmount: newCartItems.reduce((sum, cartItem) => sum + cartItem.amount, 0),
+          };
+        });
+      },
 
-  removeFromCart: (predictionId) => {
-    set((state) => {
-      const newItems = state.items.filter(item => item.prediction.id !== predictionId);
-      return {
-        items: newItems,
-        totalStake: newItems.reduce((sum, item) => sum + item.stake, 0),
-      };
-    });
-  },
+      removeFromCart: (predictionId: string) => {
+        set((state) => {
+          const newCartItems = state.cartItems.filter(
+            (item) => item.predictionId !== predictionId
+          );
+          return {
+            cartItems: newCartItems,
+            totalAmount: newCartItems.reduce((sum, item) => sum + item.amount, 0),
+            };
+          });
+        },
 
-  updateStake: (predictionId, stake) => {
-    set((state) => {
-      const newItems = state.items.map(item =>
-        item.prediction.id === predictionId
-          ? { ...item, stake: Math.min(25, Math.max(1, stake)) }
-          : item
-      );
-      return {
-        items: newItems,
-        totalStake: newItems.reduce((sum, item) => sum + item.stake, 0),
-      };
-    });
-  },
+        updateAmount: (predictionId: string, amount: number) => {
+          set((state) => {
+            const newCartItems = state.cartItems.map((item) =>
+              item.predictionId === predictionId ? { ...item, amount } : item
+            );
+            return {
+              cartItems: newCartItems,
+              totalAmount: newCartItems.reduce((sum, item) => sum + item.amount, 0),
+            };
+          });
+        },
 
-  boostPrediction: (predictionId) => {
-    set((state) => {
-      const newItems = state.items.map(item =>
-        item.prediction.id === predictionId
-          ? { ...item, stake: Math.min(25, item.stake * 5), boosted: true }
-          : item
-      );
-      return {
-        items: newItems,
-        totalStake: newItems.reduce((sum, item) => sum + item.stake, 0),
-      };
-    });
-  },
+        clearCart: () => {
+          set({ cartItems: [], totalAmount: 0 });
+        },
 
-  clearCart: () => {
-    set({ items: [], totalStake: 0 });
-  },
-
-  checkout: async () => {
-    const { items } = get();
-    
-    // Process each prediction
-    const promises = items.map(item =>
-      predictionService.placePrediction(
-        item.prediction,
-        item.choice,
-        item.stake
-      )
-    );
-
-    await Promise.all(promises);
-    
-    // Clear cart after successful checkout
-    set({ items: [], totalStake: 0 });
-  },
-}));
+        getCartCount: () => {
+          const state = get();
+          return state.cartItems?.length || 0;
+        },
+      }),
+      {
+        name: 'betcha-cart-storage',
+        storage: createJSONStorage(() => AsyncStorage),
+        partialize: (state) => ({
+          cartItems: state.cartItems || [],
+          totalAmount: state.totalAmount || 0,
+        }),
+      }
+    )
+  );

@@ -1,151 +1,95 @@
 import { create } from 'zustand';
-import { supabase } from '../lib/supabase/client';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export interface User {
+interface User {
   id: string;
   email: string;
-  username?: string;
-  virtualBalance: number;
-  createdAt: Date;
-  updatedAt: Date;
+  username: string;
+  avatarUrl?: string;
+  credits: number;
+  xp: number;
+  streak: number;
+  level: number;
 }
 
-interface UserState {
+interface UserStore {
   user: User | null;
-  loading: boolean;
-  error: string | null;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, username?: string) => Promise<void>;
-  signOut: () => Promise<void>;
-  updateBalance: (newBalance: number) => void;
-  refreshUser: () => Promise<void>;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  setUser: (user: User) => void;
+  updateCredits: (credits: number) => void;
+  updateXP: (xp: number) => void;
+  updateStreak: (streak: number) => void;
+  logout: () => void;
+  getUserStats: () => { streak: number; xp: number; credits: number };
 }
 
-export const useUserStore = create<UserState>((set, get) => ({
-  user: null,
-  loading: false,
-  error: null,
+export const useUserStore = create<UserStore>()(
+  persist(
+    (set, get) => ({
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
 
-  signIn: async (email: string, password: string) => {
-    set({ loading: true, error: null });
-    
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) throw error;
-
-      if (data.user) {
-        // Get user profile from database
-        const { data: profile, error: profileError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', data.user.id)
-          .single();
-
-        if (profileError) throw profileError;
-
+      setUser: (user: User) => {
         set({
-          user: {
-            id: profile.id,
-            email: profile.email,
-            username: profile.username,
-            virtualBalance: profile.virtual_balance || 10000, // Default $10,000
-            createdAt: new Date(profile.created_at),
-            updatedAt: new Date(profile.updated_at),
-          },
-          loading: false,
+          user,
+          isAuthenticated: true,
+          isLoading: false,
         });
-      }
-    } catch (error) {
-      set({
-        error: error instanceof Error ? error.message : 'Sign in failed',
-        loading: false,
-      });
-    }
-  },
+      },
 
-  signUp: async (email: string, password: string, username?: string) => {
-    set({ loading: true, error: null });
-    
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-      });
+      updateCredits: (credits: number) => {
+        set((state) => ({
+          user: state.user ? { ...state.user, credits } : null,
+        }));
+      },
 
-      if (error) throw error;
+      updateXP: (xp: number) => {
+        set((state) => ({
+          user: state.user ? { ...state.user, xp } : null,
+        }));
+      },
 
-      if (data.user) {
-        // Create user profile in database
-        const { error: profileError } = await supabase
-          .from('users')
-          .insert({
-            id: data.user.id,
-            email: data.user.email,
-            username,
-            virtual_balance: 10000, // Start with $10,000 virtual balance
-          });
+      updateStreak: (streak: number) => {
+        set((state) => ({
+          user: state.user ? { ...state.user, streak } : null,
+        }));
+      },
 
-        if (profileError) throw profileError;
-
-        // Sign in the user after successful signup
-        await get().signIn(email, password);
-      }
-    } catch (error) {
-      set({
-        error: error instanceof Error ? error.message : 'Sign up failed',
-        loading: false,
-      });
-    }
-  },
-
-  signOut: async () => {
-    try {
-      await supabase.auth.signOut();
-      set({ user: null });
-    } catch (error) {
-      console.error('Sign out error:', error);
-    }
-  },
-
-  updateBalance: (newBalance: number) => {
-    const { user } = get();
-    if (user) {
-      set({
-        user: {
-          ...user,
-          virtualBalance: newBalance,
-          updatedAt: new Date(),
-        },
-      });
-    }
-  },
-
-  refreshUser: async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (user) {
-      const { data: profile, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-      if (!error && profile) {
+      logout: () => {
         set({
-          user: {
-            id: profile.id,
-            email: profile.email,
-            username: profile.username,
-            virtualBalance: profile.virtual_balance || 10000,
-            createdAt: new Date(profile.created_at),
-            updatedAt: new Date(profile.updated_at),
-          },
+          user: null,
+          isAuthenticated: false,
+          isLoading: false,
         });
-      }
+      },
+
+      getUserStats: () => {
+        const state = get();
+        if (state.user) {
+          return {
+            streak: state.user.streak,
+            xp: state.user.xp,
+            credits: state.user.credits,
+          };
+          }
+        // Return default values if no user
+        return {
+          streak: 0,
+          xp: 0,
+          credits: 10000, // Default starting credits
+        };
+      },
+    }),
+    {
+      name: 'betcha-user-storage',
+      storage: createJSONStorage(() => AsyncStorage),
+      partialize: (state) => ({
+        user: state.user,
+        isAuthenticated: state.isAuthenticated,
+      }),
     }
-  },
-}));
+  )
+);

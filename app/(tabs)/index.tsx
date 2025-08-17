@@ -1,1060 +1,519 @@
-// app/(tabs)/index.tsx
-
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
-  Image, 
-  SafeAreaView,
+import React, { useState, useCallback, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
   Dimensions,
-  Platform,
+  TouchableOpacity,
+  Image,
   StatusBar,
-  PanResponder,
-  Animated,
-  ActivityIndicator,
   Alert,
-  Modal
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Heart, MessageCircle, Share2 } from 'lucide-react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Haptics from 'expo-haptics';
-import kalshiService from '../../services/kalshiService';
+import { Heart, MessageCircle, Share2, Flame, Zap, Coins } from 'lucide-react-native';
+import SwipeableCard from '../../components/SwipeableCard';
+import CartFloatingButton from '../../components/CartFloatingButton';
+import { tokens } from '../../theme/tokens';
+import { useCartStore } from '../../store/cartStore';
+import { useUserStore } from '../../store/userStore';
 
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const CARDS_BEFORE_CHECKOUT = 20;
 
-// Theme color from Betcha logo
-const BETCHA_BLUE = '#00D4FF';
-const BETCHA_LIGHT_BLUE = '#4FC3F7';
+interface Prediction {
+  id: string;
+  title: string;
+  category: string;
+  image_url?: string;
+  yes_price: number;
+  no_price: number;
+  end_date: string;
+}
 
-// Function to get image from keywords or Kalshi
-const getImageForCard = async (card: any) => {
-  try {
-    // First, check if Kalshi provides an image
-    if (card.imageUrl) {
-      return card.imageUrl;
-    }
-    
-    // Extract keywords from the question
-    const keywords = extractKeywords(card.question);
-    
-    // Try Unsplash
-    const UNSPLASH_KEY = process.env.EXPO_PUBLIC_UNSPLASH_KEY;
-    if (UNSPLASH_KEY) {
-      const response = await fetch(
-        `https://api.unsplash.com/search/photos?query=${encodeURIComponent(keywords)}&per_page=1`,
-        {
-          headers: {
-            'Authorization': `Client-ID ${UNSPLASH_KEY}`
-          }
-        }
-      );
-      const data = await response.json();
-      if (data.results && data.results[0]) {
-        return data.results[0].urls.regular;
-      }
-    }
-    
-    // Try Pexels
-    const PEXELS_KEY = process.env.EXPO_PUBLIC_PEXELS_KEY;
-    if (PEXELS_KEY) {
-      const response = await fetch(
-        `https://api.pexels.com/v1/search?query=${encodeURIComponent(keywords)}&per_page=1`,
-        {
-          headers: {
-            'Authorization': PEXELS_KEY
-          }
-        }
-      );
-      const data = await response.json();
-      if (data.photos && data.photos[0]) {
-        return data.photos[0].src.large;
-      }
-    }
-    
-    // If no image found, return Kalshi's default image URL if available
-    // This should be fetched from Kalshi's API
-    return card.defaultImageUrl || card.fallbackImageUrl || null;
-  } catch (error) {
-    console.log('Error fetching image:', error);
-    return card.imageUrl || card.defaultImageUrl || null;
-  }
-};
+const HomeScreen: React.FC = ({ navigation }: any) => {
+  const [predictions] = useState<Prediction[]>([
+    {
+      id: '1',
+      title: 'Will the Fed cut interest rates by 0.5% at the next meeting?',
+      category: 'Economics',
+      yes_price: 65,
+      no_price: 35,
+      end_date: '2024-12-23',
+    },
+    {
+      id: '2',
+      title: 'Will Tesla stock reach $300 by end of month?',
+      category: 'Markets',
+      yes_price: 42,
+      no_price: 58,
+      end_date: '2024-12-31',
+    },
+    {
+      id: '3',
+      title: 'Will Bitcoin hit $100,000 before 2025?',
+      category: 'Crypto',
+      yes_price: 78,
+      no_price: 22,
+      end_date: '2024-12-31',
+    },
+    {
+      id: '4',
+      title: 'Will there be a government shutdown this month?',
+      category: 'Politics',
+      yes_price: 30,
+      no_price: 70,
+      end_date: '2024-12-20',
+    },
+    {
+      id: '5',
+      title: 'Will Apple announce new MacBooks in January?',
+      category: 'Technology',
+      yes_price: 55,
+      no_price: 45,
+      end_date: '2025-01-31',
+    },
+    {
+      id: '6',
+      title: 'Will the Lakers make the playoffs this season?',
+      category: 'Sports',
+      yes_price: 68,
+      no_price: 32,
+      end_date: '2025-04-15',
+    },
+    {
+      id: '7',
+      title: 'Will SpaceX successfully launch Starship to orbit?',
+      category: 'Technology',
+      yes_price: 73,
+      no_price: 27,
+      end_date: '2025-03-01',
+    },
+    {
+      id: '8',
+      title: 'Will inflation drop below 2% by Q2 2025?',
+      category: 'Economics',
+      yes_price: 45,
+      no_price: 55,
+      end_date: '2025-06-30',
+    },
+    {
+      id: '9',
+      title: 'Will Netflix stock hit $700 before March?',
+      category: 'Markets',
+      yes_price: 38,
+      no_price: 62,
+      end_date: '2025-03-01',
+    },
+    {
+      id: '10',
+      title: 'Will the EU pass new AI regulations this quarter?',
+      category: 'Politics',
+      yes_price: 82,
+      no_price: 18,
+      end_date: '2025-03-31',
+    },
+    {
+      id: '11',
+      title: 'Will Ethereum reach $5000 by February?',
+      category: 'Crypto',
+      yes_price: 51,
+      no_price: 49,
+      end_date: '2025-02-28',
+    },
+    {
+      id: '12',
+      title: 'Will the Super Bowl have over 120 million viewers?',
+      category: 'Sports',
+      yes_price: 76,
+      no_price: 24,
+      end_date: '2025-02-10',
+    },
+    {
+      id: '13',
+      title: 'Will Google announce a new Pixel Fold?',
+      category: 'Technology',
+      yes_price: 64,
+      no_price: 36,
+      end_date: '2025-05-15',
+    },
+    {
+      id: '14',
+      title: 'Will oil prices exceed $100 per barrel?',
+      category: 'Markets',
+      yes_price: 29,
+      no_price: 71,
+      end_date: '2025-04-01',
+    },
+    {
+      id: '15',
+      title: 'Will China ease COVID restrictions further?',
+      category: 'Politics',
+      yes_price: 88,
+      no_price: 12,
+      end_date: '2025-02-01',
+    },
+    {
+      id: '16',
+      title: 'Will Manchester City win the Champions League?',
+      category: 'Sports',
+      yes_price: 47,
+      no_price: 53,
+      end_date: '2025-06-01',
+    },
+    {
+      id: '17',
+      title: 'Will Microsoft acquire another major gaming studio?',
+      category: 'Technology',
+      yes_price: 59,
+      no_price: 41,
+      end_date: '2025-06-30',
+    },
+    {
+      id: '18',
+      title: 'Will unemployment stay below 4% through Q1?',
+      category: 'Economics',
+      yes_price: 71,
+      no_price: 29,
+      end_date: '2025-03-31',
+    },
+    {
+      id: '19',
+      title: 'Will AMC stock double in value?',
+      category: 'Markets',
+      yes_price: 22,
+      no_price: 78,
+      end_date: '2025-12-31',
+    },
+    {
+      id: '20',
+      title: 'Will there be a major crypto hack over $100M?',
+      category: 'Crypto',
+      yes_price: 43,
+      no_price: 57,
+      end_date: '2025-06-30',
+    },
+  ]);
 
-// Extract relevant keywords from title
-const extractKeywords = (title: string): string => {
-  const patterns = {
-    celebrity: /Taylor Swift|Drake|Beyonce|Kanye|Kardashian|LeBron|Brady|Messi|Ronaldo/gi,
-    sports: /NFL|NBA|MLB|NHL|UFC|FIFA|Super Bowl|World Cup|Olympics|Lakers|Yankees/gi,
-    movies: /Marvel|Disney|Oscar|Netflix|Amazon|Apple|Star Wars|DC/gi,
-    tech: /Apple|Google|Tesla|Meta|Twitter|TikTok|AI|crypto|Bitcoin/gi,
-  };
-  
-  for (const [key, pattern] of Object.entries(patterns)) {
-    const match = title.match(pattern);
-    if (match) return match[0];
-  }
-  
-  return title.split(' ')
-    .filter(word => word.length > 3)
-    .slice(0, 3)
-    .join(' ');
-};
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isLiked, setIsLiked] = useState(false);
+  const [swipedCards, setSwipedCards] = useState(0);
 
-// Generate 20 sample cards for testing
-const generateSampleBatch = (batchNumber: number) => {
-  const questions = [
-    'Will Taylor Swift announce a new album this month?',
-    'Will Marvel announce Phase 7 at Comic-Con?',
-    'Will the Lakers make the playoffs?',
-    'Will Barbie win Best Picture at the Oscars?',
-    'Will Kim K launch a new SKIMS collection?',
-    'Will Apple announce new AirPods this quarter?',
-    'Will Drake drop a surprise album before year end?',
-    'Will Netflix stock hit $500 this month?',
-    'Will the Chiefs win the Super Bowl?',
-    'Will GTA 6 release date be announced?',
-    'Will Beyonce headline Coachella 2025?',
-    'Will Tom Brady come out of retirement?',
-    'Will Disney+ surpass Netflix subscribers?',
-    'Will Bitcoin hit $100K this year?',
-    'Will The Weeknd win a Grammy?',
-    'Will Yankees win the World Series?',
-    'Will Meta launch new VR headset?',
-    'Will Zendaya win an Emmy?',
-    'Will UFC 300 break PPV records?',
-    'Will Rihanna release new music?',
-  ];
-  
-  return Array.from({ length: 20 }, (_, i) => ({
-    id: batchNumber * 20 + i + 1,
-    category: ['MUSIC', 'ENTERTAINMENT', 'SPORTS', 'HOLLYWOOD', 'FASHION', 'TECH'][i % 6],
-    question: questions[i % questions.length],
-    yesPrice: Math.floor(Math.random() * 40) + 30,
-    noPrice: 0,
-    imageUrl: null, // This would come from Kalshi API
-    defaultImageUrl: null, // Kalshi's default image
-    endDate: '2025-09-30',
-    volume: Math.floor(Math.random() * 500) + 50,
-  })).map(bet => ({
-    ...bet,
-    noPrice: 100 - bet.yesPrice,
-    totalVolume: `$${bet.volume}K`,
-  }));
-};
+  const addToCart = useCartStore((state) => state.addToCart);
+  const cartItems = useCartStore((state) => state.cartItems) || [];
+  const getUserStats = useUserStore((state) => state.getUserStats);
 
-export default function HomeScreen() {
-  const [currentCardIndex, setCurrentCardIndex] = useState(0);
-  const [currentBatch, setCurrentBatch] = useState(0);
-  const [credits, setCredits] = useState(100);
-  const [xp, setXp] = useState(450);
-  const [streak, setStreak] = useState(7);
-  const [sessionBets, setSessionBets] = useState<any[]>([]);
-  const [showCheckout, setShowCheckout] = useState(false);
-  const [showCreditsPurchase, setShowCreditsPurchase] = useState(false);
-  const [activeCards, setActiveCards] = useState(generateSampleBatch(0));
-  const [likedCards, setLikedCards] = useState<Set<number>>(new Set());
-  const [cardImages, setCardImages] = useState<{[key: number]: string}>({});
-  const [lastSwipeTime, setLastSwipeTime] = useState<Date | null>(null);
-  const [swipeHistory, setSwipeHistory] = useState<any[]>([]);
-  
-  const pan = useRef(new Animated.ValueXY()).current;
-  const rotateValue = useRef(new Animated.Value(0)).current;
-  const opacityValue = useRef(new Animated.Value(1)).current;
-  const scaleValue = useRef(new Animated.Value(1)).current;
-  const isAnimating = useRef(false);
-  
-  const currentCard = activeCards[currentCardIndex];
+  // Get user stats with safe defaults
+  const userStats = getUserStats();
 
-  // Load images for cards
   useEffect(() => {
-    const loadImages = async () => {
-      for (const card of activeCards) {
-        if (!cardImages[card.id]) {
-          const imageUrl = await getImageForCard(card);
-          if (imageUrl) {
-            setCardImages(prev => ({ ...prev, [card.id]: imageUrl }));
-          }
-        }
-      }
-    };
-    loadImages();
-  }, [activeCards]);
-
-  const rotate = rotateValue.interpolate({
-    inputRange: [-screenWidth / 2, 0, screenWidth / 2],
-    outputRange: ['-15deg', '0deg', '15deg'],
-  });
-
-  // Gradient opacity for swipe hints (red left for NO, green right for YES)
-  const leftGradientOpacity = pan.x.interpolate({
-    inputRange: [-100, 0, 100],
-    outputRange: [0.4, 0, 0],
-    extrapolate: 'clamp',
-  });
-
-  const rightGradientOpacity = pan.x.interpolate({
-    inputRange: [-100, 0, 100],
-    outputRange: [0, 0, 0.4],
-    extrapolate: 'clamp',
-  });
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => !isAnimating.current,
-      onMoveShouldSetPanResponder: (evt, gestureState) => {
-        return !isAnimating.current && (Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5);
-      },
-      onPanResponderGrant: () => {
-        Animated.spring(scaleValue, {
-          toValue: 0.95,
-          useNativeDriver: true,
-        }).start();
-      },
-      onPanResponderMove: (evt, gestureState) => {
-        if (isAnimating.current) return;
-        
-        pan.setValue({ x: gestureState.dx, y: gestureState.dy });
-        rotateValue.setValue(gestureState.dx);
-        
-        const opacity = 1 - Math.min(Math.abs(gestureState.dx) / (screenWidth * 0.5), 0.3);
-        opacityValue.setValue(opacity);
-      },
-      onPanResponderRelease: (evt, gestureState) => {
-        if (isAnimating.current) return;
-        
-        const absX = Math.abs(gestureState.dx);
-        const absY = Math.abs(gestureState.dy);
-        const velocityX = Math.abs(gestureState.vx);
-        const velocityY = Math.abs(gestureState.vy);
-        
-        const isHorizontal = absX > absY;
-        
-        const horizontalThreshold = screenWidth * 0.25;
-        const verticalThreshold = screenHeight * 0.15;
-        const velocityThreshold = 0.5;
-        
-        if (isHorizontal && (absX > horizontalThreshold || velocityX > velocityThreshold)) {
-          if (gestureState.dx > 0) {
-            // Swipe Right - YES
-            handleYes();
-          } else {
-            // Swipe Left - NO
-            handleNo();
-          }
-        } else if (!isHorizontal && (absY > verticalThreshold || velocityY > velocityThreshold)) {
-          if (gestureState.dy < 0) {
-            // Swipe Up - Skip
-            handleSkip();
-          } else if (gestureState.dy > 0) {
-            // Swipe Down - Undo last action
-            handleUndo();
-          } else {
-            springBack();
-          }
-        } else {
-          springBack();
-        }
-      },
-    })
-  ).current;
-
-  const springBack = () => {
-    Animated.parallel([
-      Animated.spring(pan, {
-        toValue: { x: 0, y: 0 },
-        useNativeDriver: true,
-        tension: 40,
-        friction: 8,
-      }),
-      Animated.spring(rotateValue, {
-        toValue: 0,
-        useNativeDriver: true,
-      }),
-      Animated.spring(opacityValue, {
-        toValue: 1,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleValue, {
-        toValue: 1,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
-
-  const animateCardOut = (direction: 'left' | 'right' | 'up' | 'down', onComplete: () => void) => {
-    if (isAnimating.current) return;
-    isAnimating.current = true;
-    
-    let toValue = { x: 0, y: 0 };
-    let rotateEndValue = 0;
-    
-    switch (direction) {
-      case 'left':
-        toValue = { x: -screenWidth * 1.5, y: 0 };
-        rotateEndValue = -screenWidth / 2;
-        break;
-      case 'right':
-        toValue = { x: screenWidth * 1.5, y: 0 };
-        rotateEndValue = screenWidth / 2;
-        break;
-      case 'up':
-        toValue = { x: 0, y: -screenHeight };
-        break;
-      case 'down':
-        toValue = { x: 0, y: screenHeight };
-        break;
+    // Check if we've swiped through 20 cards
+    if (swipedCards >= CARDS_BEFORE_CHECKOUT && swipedCards % CARDS_BEFORE_CHECKOUT === 0) {
+      // Navigate to checkout
+      Alert.alert(
+        'Checkout Time!',
+        `You've made ${CARDS_BEFORE_CHECKOUT} predictions. Ready to place your bets?`,
+        [
+          {
+            text: 'Review Cart',
+            onPress: () => {
+              console.log('Navigate to checkout with', cartItems.length, 'items');
+            },
+          },
+          {
+            text: 'Keep Swiping',
+            style: 'cancel',
+          },
+        ]
+      );
     }
-    
-    Animated.parallel([
-      Animated.timing(pan, {
-        toValue,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(rotateValue, {
-        toValue: rotateEndValue,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacityValue, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      onComplete();
-      pan.setValue({ x: 0, y: 0 });
-      rotateValue.setValue(0);
-      opacityValue.setValue(1);
-      scaleValue.setValue(1);
-      isAnimating.current = false;
-    });
-  };
+  }, [swipedCards, cartItems.length]);
 
-  const handleYes = () => {
-    if (!currentCard || credits <= 0) {
-      if (credits <= 0) {
-        setShowCreditsPurchase(true);
-      }
-      springBack();
-      return;
-    }
+  const handleSwipeLeft = useCallback(() => {
+    const current = predictions[currentIndex];
+    console.log('Swiped NO on:', current.title);
     
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
-    animateCardOut('right', () => {
-      const bet = {
-        ...currentCard,
-        choice: 'YES',
-        amount: 1,
-        potentialPayout: (100 / currentCard.yesPrice).toFixed(2)
-      };
-      
-      setSessionBets(prev => [...prev, bet]);
-      setCredits(prev => Math.max(0, prev - 1));
-      setXp(prev => prev + 10);
-      updateStreak();
-      
-      // Save to history for undo
-      setSwipeHistory(prev => [...prev, { action: 'YES', card: currentCard, index: currentCardIndex }]);
-      
-      moveToNextCard();
+    // Add to cart with NO selection
+    addToCart({
+      predictionId: current.id,
+      prediction: current,
+      position: 'no',
+      amount: 100,
     });
-  };
-
-  const handleNo = () => {
-    if (!currentCard || credits <= 0) {
-      if (credits <= 0) {
-        setShowCreditsPurchase(true);
-      }
-      springBack();
-      return;
-    }
     
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setCurrentIndex((prev) => (prev + 1) % predictions.length);
+    setSwipedCards((prev) => prev + 1);
+    setIsLiked(false);
+  }, [currentIndex, predictions, addToCart]);
+
+  const handleSwipeRight = useCallback(() => {
+    const current = predictions[currentIndex];
+    console.log('Swiped YES on:', current.title);
     
-    animateCardOut('left', () => {
-      const bet = {
-        ...currentCard,
-        choice: 'NO',
-        amount: 1,
-        potentialPayout: (100 / currentCard.noPrice).toFixed(2)
-      };
-      
-      setSessionBets(prev => [...prev, bet]);
-      setCredits(prev => Math.max(0, prev - 1));
-      setXp(prev => prev + 10);
-      updateStreak();
-      
-      // Save to history for undo
-      setSwipeHistory(prev => [...prev, { action: 'NO', card: currentCard, index: currentCardIndex }]);
-      
-      moveToNextCard();
+    // Add to cart with YES selection
+    addToCart({
+      predictionId: current.id,
+      prediction: current,
+      position: 'yes',
+      amount: 100,
     });
-  };
-
-  const handleSkip = () => {
-    animateCardOut('up', () => {
-      updateStreak();
-      setSwipeHistory(prev => [...prev, { action: 'SKIP', card: currentCard, index: currentCardIndex }]);
-      moveToNextCard();
-    });
-  };
-
-  const handleUndo = () => {
-    if (swipeHistory.length === 0 || currentCardIndex === 0) {
-      springBack();
-      return;
-    }
     
-    animateCardOut('down', () => {
-      const lastAction = swipeHistory[swipeHistory.length - 1];
-      
-      // Undo the last action
-      if (lastAction.action === 'YES' || lastAction.action === 'NO') {
-        // Remove from session bets
-        setSessionBets(prev => prev.slice(0, -1));
-        // Restore credit
-        setCredits(prev => prev + 1);
-        // Remove XP
-        setXp(prev => Math.max(0, prev - 10));
-      }
-      
-      // Remove from history
-      setSwipeHistory(prev => prev.slice(0, -1));
-      
-      // Go back to previous card
-      setCurrentCardIndex(prev => Math.max(0, prev - 1));
-    });
-  };
+    setCurrentIndex((prev) => (prev + 1) % predictions.length);
+    setSwipedCards((prev) => prev + 1);
+    setIsLiked(false);
+  }, [currentIndex, predictions, addToCart]);
 
-  const moveToNextCard = () => {
-    if (currentCardIndex < activeCards.length - 1) {
-      setCurrentCardIndex(prev => prev + 1);
-    } else {
-      // After 20 cards, show checkout
-      setShowCheckout(true);
+  const handleSwipeUp = useCallback(() => {
+    // Skip to next without adding to cart
+    console.log('Skipped:', predictions[currentIndex].title);
+    setCurrentIndex((prev) => (prev + 1) % predictions.length);
+    setIsLiked(false);
+  }, [currentIndex, predictions]);
+
+  const handleSwipeDown = useCallback(() => {
+    // Go to previous card
+    console.log('Previous card');
+    setCurrentIndex((prev) => (prev - 1 + predictions.length) % predictions.length);
+    setIsLiked(false);
+  }, [predictions.length]);
+
+  const handleLike = useCallback(() => {
+    setIsLiked(!isLiked);
+  }, [isLiked]);
+
+  const handleShare = useCallback(() => {
+    console.log('Share prediction:', predictions[currentIndex].title);
+  }, [currentIndex, predictions]);
+
+  const handleComment = useCallback(() => {
+    console.log('Comment on prediction:', predictions[currentIndex].title);
+  }, [currentIndex, predictions]);
+
+  // Try to load logo from assets, fallback to text
+  const LogoComponent = () => {
+    try {
+      return (
+        <Image
+          source={require('../../assets/betcha-new-v2.png')}
+          style={styles.logo}
+          resizeMode="contain"
+          onError={() => console.log('Logo failed to load')}
+        />
+      );
+    } catch (error) {
+      // Fallback to text if image doesn't exist
+      return <Text style={styles.logoText}>Betcha</Text>;
     }
   };
-
-  const loadNextBatch = () => {
-    const nextBatch = currentBatch + 1;
-    setCurrentBatch(nextBatch);
-    setActiveCards(generateSampleBatch(nextBatch));
-    setCurrentCardIndex(0);
-    setShowCheckout(false);
-  };
-
-  const updateStreak = () => {
-    const now = new Date();
-    if (!lastSwipeTime || now.getDate() !== lastSwipeTime.getDate()) {
-      setStreak(prev => prev + 1);
-    }
-    setLastSwipeTime(now);
-  };
-
-  const handleLike = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setLikedCards(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(currentCard.id)) {
-        newSet.delete(currentCard.id);
-      } else {
-        newSet.add(currentCard.id);
-      }
-      return newSet;
-    });
-  };
-
-  const handleComment = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Alert.alert('Comments', 'Comments feature coming soon!');
-  };
-
-  const handleShare = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Alert.alert('Share', 'Share feature coming soon!');
-  };
-
-  const calculateTotalWinnings = () => {
-    return sessionBets.reduce((total, bet) => {
-      return total + parseFloat(bet.potentialPayout);
-    }, 0).toFixed(2);
-  };
-
-  if (!currentCard && !showCheckout) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>Loading predictions...</Text>
-          <ActivityIndicator size="large" color={BETCHA_BLUE} />
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       
-      {/* Main Card - Full Screen */}
-      {currentCard && (
-        <Animated.View
-          style={[
-            styles.cardContainer,
-            {
-              transform: [
-                { translateX: pan.x },
-                { translateY: pan.y },
-                { rotate },
-                { scale: scaleValue }
-              ],
-              opacity: opacityValue,
-            },
-          ]}
-          {...panResponder.panHandlers}>
-          
-          <View style={styles.card}>
-            {/* Background Image - Always from Kalshi or API */}
-            {cardImages[currentCard.id] && (
-              <Image 
-                source={{ uri: cardImages[currentCard.id] }}
-                style={styles.cardBackgroundImage}
-                resizeMode="cover"
-              />
-            )}
-            
-            {/* Left swipe hint (RED for NO) */}
-            <Animated.View 
-              style={[
-                styles.swipeHintLeft,
-                { opacity: leftGradientOpacity }
-              ]}
-              pointerEvents="none">
-              <LinearGradient
-                colors={['rgba(255, 59, 48, 0.6)', 'transparent']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={StyleSheet.absoluteFillObject}
-              />
-              <View style={styles.swipeIndicatorLeft}>
-                <Text style={styles.swipeTextNo}>NO</Text>
-              </View>
-            </Animated.View>
-            
-            {/* Right swipe hint (GREEN for YES) */}
-            <Animated.View 
-              style={[
-                styles.swipeHintRight,
-                { opacity: rightGradientOpacity }
-              ]}
-              pointerEvents="none">
-              <LinearGradient
-                colors={['transparent', 'rgba(52, 199, 89, 0.6)']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={StyleSheet.absoluteFillObject}
-              />
-              <View style={styles.swipeIndicatorRight}>
-                <Text style={styles.swipeTextYes}>YES</Text>
-              </View>
-            </Animated.View>
-            
-            {/* Content Overlay */}
-            <View style={styles.cardContent}>
-              {/* Category Pill */}
-              <View style={[styles.categoryPill, { backgroundColor: BETCHA_BLUE }]}>
-                <Text style={styles.categoryText}>{currentCard.category}</Text>
-              </View>
-              
-              {/* Question */}
-              <View style={styles.questionContainer}>
-                <Text style={styles.questionText}>{currentCard.question}</Text>
-              </View>
-              
-              {/* Prices */}
-              <View style={styles.pricesContainer}>
-                <View style={styles.priceBox}>
-                  <Text style={styles.priceLabel}>NO</Text>
-                  <Text style={[styles.priceValue, { color: '#FF3B30' }]}>{currentCard.noPrice}%</Text>
-                </View>
-                <View style={styles.priceDivider} />
-                <View style={styles.priceBox}>
-                  <Text style={styles.priceLabel}>YES</Text>
-                  <Text style={[styles.priceValue, { color: '#34C759' }]}>{currentCard.yesPrice}%</Text>
-                </View>
-              </View>
-            </View>
-            
-            {/* Bottom Section */}
-            <View style={styles.bottomSection}>
-              <View style={styles.interactionContainer}>
-                <TouchableOpacity 
-                  style={styles.interactionButton} 
-                  onPress={handleLike}
-                  onLongPress={handleLike}>
-                  <Heart 
-                    size={28} 
-                    color="#FFF" 
-                    fill={likedCards.has(currentCard.id) ? '#FFF' : 'none'}
-                  />
-                  <Text style={styles.interactionText}>2.4K</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity style={styles.interactionButton} onPress={handleComment}>
-                  <MessageCircle size={28} color="#FFF" />
-                  <Text style={styles.interactionText}>147</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity style={styles.interactionButton} onPress={handleShare}>
-                  <Share2 size={28} color="#FFF" />
-                  <Text style={styles.interactionText}>Share</Text>
-                </TouchableOpacity>
-              </View>
-              
-              {/* Progress Dots */}
-              <View style={styles.progressContainer}>
-                <View style={styles.dotsContainer}>
-                  {activeCards.map((_, index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.dot,
-                        index === currentCardIndex && styles.activeDot,
-                        index < currentCardIndex && styles.completedDot
-                      ]}
-                    />
-                  ))}
-                </View>
-                <Text style={styles.progressText}>
-                  {currentCardIndex + 1} / {activeCards.length}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </Animated.View>
-      )}
-
-      {/* Header Overlay */}
-      <View style={styles.headerOverlay}>
-        <Image 
-          source={require('../../assets/betcha-new-v2.png')}
-          style={styles.logoImage}
-          resizeMode="contain"
-        />
+      {/* Header with logo and stats */}
+      <View style={styles.header}>
+        <LogoComponent />
         
         <View style={styles.statsContainer}>
-          <TouchableOpacity 
-            style={styles.statBox}
-            onPress={() => setShowCreditsPurchase(true)}
-            activeOpacity={0.8}>
-            <Text style={styles.statValue}>💎 {credits}</Text>
-            <Text style={styles.statLabel}>CREDITS</Text>
-          </TouchableOpacity>
-          
-          <View style={styles.statBox}>
-            <Text style={styles.statValue}>⭐ {xp >= 1000 ? `${(xp/1000).toFixed(1)}K` : xp}</Text>
-            <Text style={styles.statLabel}>XP</Text>
+          <View style={styles.statItem}>
+            <Flame size={16} color={tokens.colors.primary} />
+            <Text style={styles.statText}>{userStats.streak}</Text>
           </View>
-          
-          <View style={styles.statBox}>
-            <Text style={styles.statValue}>🔥 {streak}</Text>
-            <Text style={styles.statLabel}>STREAK</Text>
+          <View style={styles.statItem}>
+            <Zap size={16} color={tokens.colors.primary} />
+            <Text style={styles.statText}>{userStats.xp}</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Coins size={16} color={tokens.colors.primary} />
+            <Text style={styles.statText}>{userStats.credits.toLocaleString()}</Text>
           </View>
         </View>
       </View>
 
-      {/* Checkout Modal */}
-      {showCheckout && (
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={showCheckout}>
-          <View style={styles.checkoutModal}>
-            <View style={styles.checkoutContent}>
-              <Text style={styles.checkoutTitle}>Review Your Predictions</Text>
-              <Text style={styles.checkoutSubtitle}>
-                {sessionBets.length} predictions • ${sessionBets.length} total stake
-              </Text>
-              
-              <View style={styles.winningsBox}>
-                <Text style={styles.winningsLabel}>Potential Winnings</Text>
-                <Text style={styles.winningsAmount}>${calculateTotalWinnings()}</Text>
-              </View>
-              
-              <TouchableOpacity 
-                style={styles.checkoutButton}
-                onPress={() => {
-                  // Submit to Kalshi
-                  Alert.alert('Success!', 'Your predictions have been submitted!');
-                  setSessionBets([]);
-                  loadNextBatch();
-                }}>
-                <LinearGradient
-                  colors={[BETCHA_BLUE, BETCHA_LIGHT_BLUE]}
-                  style={styles.checkoutGradient}>
-                  <Text style={styles.checkoutButtonText}>Submit Predictions</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.continueButton}
-                onPress={loadNextBatch}>
-                <Text style={styles.continueButtonText}>Keep Swiping</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
-      )}
+      {/* Card stack - full screen */}
+      <View style={styles.cardContainer}>
+        {predictions.slice(currentIndex, currentIndex + 3).map((prediction, index) => {
+          if (index === 0) {
+            return (
+              <SwipeableCard
+                key={`${prediction.id}-${currentIndex}`}
+                prediction={prediction}
+                onSwipeLeft={handleSwipeLeft}
+                onSwipeRight={handleSwipeRight}
+                onSwipeUp={handleSwipeUp}
+                onSwipeDown={handleSwipeDown}
+                onLike={handleLike}
+                isTop={true}
+              />
+            );
+          }
+          return (
+            <View
+              key={`${prediction.id}-${currentIndex}-placeholder`}
+              style={[
+                styles.cardPlaceholder,
+                { 
+                  zIndex: -index,
+                  transform: [
+                    { scale: 1 - index * 0.03 },
+                    { translateY: index * 8 },
+                  ],
+                },
+              ]}
+            />
+          );
+        })}
+      </View>
 
-      {/* Credits Purchase Modal */}
-      {showCreditsPurchase && (
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={showCreditsPurchase}>
-          <View style={styles.modal}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Buy Credits</Text>
-              <TouchableOpacity 
-                style={styles.modalButton}
-                onPress={() => {
-                  setCredits(prev => prev + 100);
-                  setShowCreditsPurchase(false);
-                }}>
-                <Text style={styles.modalButtonText}>100 Credits - $9.99</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.modalCloseButton}
-                onPress={() => setShowCreditsPurchase(false)}>
-                <Text style={styles.modalCloseText}>Close</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
+      {/* Action buttons - vertical on right side */}
+      <View style={styles.actionButtonsContainer}>
+        <TouchableOpacity onPress={handleComment} style={styles.actionButton}>
+          <MessageCircle size={22} color={tokens.colors.textSecondary} />
+        </TouchableOpacity>
+        
+        <TouchableOpacity onPress={handleShare} style={styles.actionButton}>
+          <Share2 size={22} color={tokens.colors.textSecondary} />
+        </TouchableOpacity>
+        
+        <TouchableOpacity onPress={handleLike} style={styles.actionButton}>
+          <Heart
+            size={22}
+            color={isLiked ? tokens.colors.primary : tokens.colors.textSecondary}
+            fill={isLiked ? tokens.colors.primary : 'transparent'}
+            strokeWidth={isLiked ? 3 : 2}
+          />
+        </TouchableOpacity>
+      </View>
+
+      {/* Carousel dots at very bottom */}
+      <View style={styles.carouselContainer}>
+        <View style={styles.carouselDots}>
+          {Array.from({ length: Math.min(5, predictions.length - currentIndex) }).map((_, index) => (
+            <View
+              key={index}
+              style={[
+                styles.dot,
+                index === 0 && styles.activeDot,
+              ]}
+            />
+          ))}
+        </View>
+      </View>
+
+      {/* Cart floating button */}
+      {cartItems.length > 0 && (
+        <CartFloatingButton 
+          count={cartItems.length}
+          onPress={() => {
+            console.log('Navigate to checkout with', cartItems.length, 'items');
+          }}
+        />
       )}
     </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: tokens.colors.background,
   },
-  cardContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 50,
-  },
-  card: {
-    flex: 1,
-    backgroundColor: '#111',
-    overflow: 'hidden',
-  },
-  cardBackgroundImage: {
-    position: 'absolute',
-    width: '100%',
-    height: '100%',
-  },
-  swipeHintLeft: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: '50%',
-  },
-  swipeHintRight: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: '50%',
-  },
-  swipeIndicatorLeft: {
-    position: 'absolute',
-    left: 30,
-    top: '50%',
-    transform: [{ translateY: -20 }],
-  },
-  swipeIndicatorRight: {
-    position: 'absolute',
-    right: 30,
-    top: '50%',
-    transform: [{ translateY: -20 }],
-  },
-  swipeTextNo: {
-    color: '#FF3B30',
-    fontSize: 32,
-    fontWeight: '800',
-  },
-  swipeTextYes: {
-    color: '#34C759',
-    fontSize: 32,
-    fontWeight: '800',
-  },
-  cardContent: {
-    flex: 1,
-    padding: 20,
-    paddingTop: 120,
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-  },
-  categoryPill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginBottom: 20,
-  },
-  categoryText: {
-    color: '#000',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  questionContainer: {
-    marginBottom: 30,
-  },
-  questionText: {
-    color: '#FFF',
-    fontSize: 32,
-    fontWeight: '700',
-    lineHeight: 40,
-    textShadow: '0px 2px 4px rgba(0, 0, 0, 0.5)',
-  },
-  pricesContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  priceBox: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  priceDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    marginHorizontal: 20,
-  },
-  priceLabel: {
-    color: 'rgba(255, 255, 255, 0.8)',
-    fontSize: 16,
-    marginBottom: 4,
-    fontWeight: '600',
-  },
-  priceValue: {
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  bottomSection: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    paddingBottom: 30,
-  },
-  interactionContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-  },
-  interactionButton: {
-    alignItems: 'center',
-  },
-  interactionText: {
-    color: '#FFF',
-    fontSize: 12,
-    marginTop: 4,
-  },
-  progressContainer: {
-    paddingVertical: 15,
-    alignItems: 'center',
-  },
-  dotsContainer: {
-    flexDirection: 'row',
-    gap: 4,
-    marginBottom: 8,
-  },
-  dot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  activeDot: {
-    backgroundColor: BETCHA_BLUE,
-    width: 12,
-  },
-  completedDot: {
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
-  },
-  progressText: {
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 12,
-  },
-  headerOverlay: {
+  header: {
     position: 'absolute',
     top: 50,
-    left: 10,
-    right: 10,
-    zIndex: 100,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 16,
+    zIndex: 100,
   },
-  logoImage: {
-    width: 180,
-    height: 90,
+  logo: {
+    width: 420, // 3x bigger (was 140)
+    height: 150, // 3x bigger (was 50)
+    alignSelf: 'flex-start', // Force left alignment
+  },
+  logoText: {
+    fontSize: 96, // 3x bigger (was 32)
+    fontWeight: 'bold',
+    color: tokens.colors.primary,
+    alignSelf: 'flex-start', // Force left alignment
   },
   statsContainer: {
     flexDirection: 'row',
-    gap: 6,
+    gap: 12,
   },
-  statBox: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    minWidth: 55,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  statValue: {
-    color: '#FFF',
-    fontSize: 13,
-    fontWeight: '700',
+  statItem: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  statLabel: {
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 8,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyText: {
-    color: '#FFF',
-    fontSize: 24,
-    fontWeight: '600',
-    marginBottom: 20,
-  },
-  checkoutModal: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkoutContent: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 20,
-    padding: 30,
-    width: '90%',
-    alignItems: 'center',
-  },
-  checkoutTitle: {
-    color: '#FFF',
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: 10,
-  },
-  checkoutSubtitle: {
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 16,
-    marginBottom: 20,
-  },
-  winningsBox: {
-    backgroundColor: 'rgba(0, 212, 255, 0.1)',
-    borderRadius: 15,
-    padding: 20,
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 30,
+    gap: 4,
+    backgroundColor: 'rgba(26, 26, 28, 0.9)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: tokens.radius.lg,
     borderWidth: 1,
-    borderColor: BETCHA_BLUE,
+    borderColor: tokens.colors.glassBorder,
   },
-  winningsLabel: {
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 14,
-    marginBottom: 5,
-  },
-  winningsAmount: {
-    color: BETCHA_BLUE,
-    fontSize: 36,
-    fontWeight: '700',
-  },
-  checkoutButton: {
-    width: '100%',
-    marginBottom: 15,
-  },
-  checkoutGradient: {
-    paddingVertical: 18,
-    borderRadius: 30,
-    alignItems: 'center',
-  },
-  checkoutButtonText: {
-    color: '#000',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  continueButton: {
-    padding: 10,
-  },
-  continueButtonText: {
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 16,
-  },
-  modal: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 20,
-    padding: 30,
-    width: '80%',
-    alignItems: 'center',
-  },
-  modalTitle: {
-    color: '#FFF',
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 20,
-  },
-  modalButton: {
-    backgroundColor: BETCHA_BLUE,
-    paddingHorizontal: 30,
-    paddingVertical: 15,
-    borderRadius: 25,
-    marginBottom: 15,
-  },
-  modalButtonText: {
-    color: '#000',
-    fontSize: 16,
+  statText: {
+    color: tokens.colors.color,
+    fontSize: 13,
     fontWeight: '600',
   },
-  modalCloseButton: {
-    padding: 10,
+  cardContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  modalCloseText: {
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 14,
+  cardPlaceholder: {
+    position: 'absolute',
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
+    backgroundColor: tokens.colors.surface,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  actionButtonsContainer: {
+    position: 'absolute',
+    top: 120,
+    right: 16,
+    gap: 12,
+    zIndex: 101,
+  },
+  actionButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(26, 26, 28, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: tokens.colors.glassBorder,
+  },
+  carouselContainer: {
+    position: 'absolute',
+    bottom: 20, // Moved to very bottom
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 102,
+  },
+  carouselDots: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  activeDot: {
+    backgroundColor: tokens.colors.primary,
+    width: 18,
   },
 });
+
+export default HomeScreen;
