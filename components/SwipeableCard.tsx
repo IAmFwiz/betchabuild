@@ -1,466 +1,487 @@
-import React, { useState, useRef, useEffect } from 'react';
+// components/SwipeableCard.tsx
+import React, { useRef, useEffect, useState } from 'react';
 import {
   View,
   Text,
-  Image,
   StyleSheet,
   Dimensions,
+  Image,
   Animated,
   PanResponder,
-  TouchableWithoutFeedback,
-  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { tokens } from '../theme/tokens';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
-const SWIPE_OUT_DURATION = 250;
 
-// Image cache for faster loading
-const imageCache = new Map<string, string>();
+interface Prediction {
+  id: string;
+  title: string;
+  category: string;
+  image_url?: string;
+  yes_price: number;
+  no_price: number;
+  end_date: string;
+  keywords?: string[];
+}
 
 interface SwipeableCardProps {
-  prediction: {
-    id: string;
-    title: string;
-    category: string;
-    image_url?: string;
-    yes_price: number;
-    no_price: number;
-    end_date: string;
-  };
+  prediction: Prediction;
   onSwipeLeft: () => void;
   onSwipeRight: () => void;
-  onSwipeUp?: () => void;
-  onSwipeDown?: () => void;
+  onSwipeUp: () => void;
+  onSwipeDown: () => void;
   onLike?: () => void;
   isTop: boolean;
 }
 
-export const SwipeableCard: React.FC<SwipeableCardProps> = ({
+const SwipeableCard: React.FC<SwipeableCardProps> = ({
   prediction,
   onSwipeLeft,
   onSwipeRight,
   onSwipeUp,
   onSwipeDown,
-  onLike,
   isTop,
 }) => {
-  const [isLiked, setIsLiked] = useState(false);
+  const pan = useRef(new Animated.ValueXY()).current;
+  const shimmerAnimation = useRef(new Animated.Value(0)).current;
+  const greenFlashAnimation = useRef(new Animated.Value(0)).current;
+  const redFlashAnimation = useRef(new Animated.Value(0)).current;
+  
   const [imageLoaded, setImageLoaded] = useState(false);
-  const position = useRef(new Animated.ValueXY()).current;
-  const swipeIndicatorOpacity = useRef(new Animated.Value(0)).current;
-  const [currentChoice, setCurrentChoice] = useState<'YES' | 'NO' | null>(null);
-  const lastTap = useRef<number | null>(null);
+  const [imageError, setImageError] = useState(false);
 
-  // Generate highly relevant image URLs with better caching
-  const getImageUrl = () => {
-    const cacheKey = `${prediction.id}-${prediction.category}`;
-    
-    // Check cache first
-    if (imageCache.has(cacheKey)) {
-      return imageCache.get(cacheKey)!;
-    }
-
-    const title = prediction.title.toLowerCase();
-    const category = prediction.category.toLowerCase();
-    
-    // Use highly specific, relevant images
-    let imageUrl = '';
-    
-    if (title.includes('bitcoin') || title.includes('crypto') || category === 'crypto') {
-      imageUrl = 'https://picsum.photos/id/1/1080/1920'; // Tech/abstract
-    } else if (title.includes('tesla') || title.includes('car') || title.includes('electric')) {
-      imageUrl = 'https://picsum.photos/id/1071/1080/1920'; // Car
-    } else if (title.includes('stock') || title.includes('market') || category === 'markets') {
-      imageUrl = 'https://picsum.photos/id/367/1080/1920'; // Business/office
-    } else if (title.includes('fed') || title.includes('interest') || title.includes('inflation') || category === 'economics') {
-      imageUrl = 'https://picsum.photos/id/380/1080/1920'; // Finance/building
-    } else if (title.includes('government') || title.includes('shutdown') || category === 'politics') {
-      imageUrl = 'https://picsum.photos/id/274/1080/1920'; // Architecture
-    } else if (title.includes('apple') || title.includes('macbook') || title.includes('google') || title.includes('pixel') || category === 'technology') {
-      imageUrl = 'https://picsum.photos/id/2/1080/1920'; // Technology
-    } else if (title.includes('space') || title.includes('spacex') || title.includes('starship')) {
-      imageUrl = 'https://picsum.photos/id/975/1080/1920'; // Space/sky
-    } else if (title.includes('lakers') || title.includes('playoffs') || title.includes('super bowl') || category === 'sports') {
-      imageUrl = 'https://picsum.photos/id/48/1080/1920'; // Sports
-    } else if (title.includes('eu') || title.includes('ai regulations') || title.includes('china') || title.includes('covid')) {
-      imageUrl = 'https://picsum.photos/id/1048/1080/1920'; // City/government
-    } else if (title.includes('netflix') || title.includes('amc') || title.includes('oil') || title.includes('unemployment')) {
-      imageUrl = 'https://picsum.photos/id/367/1080/1920'; // Business/finance
-    } else {
-      // Fallback to category-based images
-      switch (category) {
-        case 'economics':
-          imageUrl = 'https://picsum.photos/id/380/1080/1920';
-          break;
-        case 'markets':
-          imageUrl = 'https://picsum.photos/id/367/1080/1920';
-          break;
-        case 'politics':
-          imageUrl = 'https://picsum.photos/id/1048/1080/1920';
-          break;
-        case 'technology':
-          imageUrl = 'https://picsum.photos/id/2/1080/1920';
-          break;
-        case 'sports':
-          imageUrl = 'https://picsum.photos/id/48/1080/1920';
-          break;
-        case 'crypto':
-          imageUrl = 'https://picsum.photos/id/1/1080/1920';
-          break;
-        default:
-          imageUrl = 'https://picsum.photos/id/367/1080/1920'; // Business as default
-      }
-    }
-    
-    // Cache the URL
-    imageCache.set(cacheKey, imageUrl);
-    return imageUrl;
-  };
-
-  const [imageUrl, setImageUrl] = useState(getImageUrl());
-
-  // Pre-load next few images for smoother experience
   useEffect(() => {
-    if (isTop) {
-      // Pre-load next 2-3 images
-      const preloadImages = () => {
-        const nextPredictions = [
-          { id: `${parseInt(prediction.id) + 1}`, category: prediction.category },
-          { id: `${parseInt(prediction.id) + 2}`, category: prediction.category },
-          { id: `${parseInt(prediction.id) + 3}`, category: prediction.category },
-        ];
-        
-        nextPredictions.forEach(nextPred => {
-          const nextCacheKey = `${nextPred.id}-${nextPred.category}`;
-          if (!imageCache.has(nextCacheKey)) {
-            const nextImageUrl = getImageUrl();
-            // Pre-fetch the image
-            Image.prefetch(nextImageUrl).catch(() => {});
-          }
-        });
-      };
-      
-      preloadImages();
-    }
-  }, [isTop, prediction.id, prediction.category]);
-
-  // Handle image load error with guaranteed fallback
-  const handleImageError = () => {
-    console.log('Primary image failed, using fallback...');
-    const fallbackUrl = 'https://picsum.photos/id/367/1080/1920'; // Business fallback
-    setImageUrl(fallbackUrl);
-  };
-
-  // Double tap handler for like
-  const handleCardPress = () => {
-    const now = Date.now();
-    if (lastTap.current && now - lastTap.current < 300) {
-      // Double tap detected
-      setIsLiked(!isLiked);
-      onLike?.();
-      // Show heart animation briefly then hide
+    // Create shimmer animation for glossy effect
+    Animated.loop(
       Animated.sequence([
-        Animated.timing(swipeIndicatorOpacity, {
+        Animated.timing(shimmerAnimation, {
           toValue: 1,
-          duration: 300,
+          duration: 3000,
           useNativeDriver: true,
         }),
-        Animated.delay(200),
-        Animated.timing(swipeIndicatorOpacity, {
+        Animated.timing(shimmerAnimation, {
           toValue: 0,
-          duration: 300,
+          duration: 3000,
           useNativeDriver: true,
         }),
-      ]).start(() => {
-        setIsLiked(false); // Hide heart after animation
-      });
+      ])
+    ).start();
+  }, []);
+
+  // CLEAN DEMO IMAGE MAPPING - Using prediction ID for exact matches
+  const getDemoImage = (prediction: Prediction) => {
+    console.log('Getting image for prediction:', prediction.id, prediction.title);
+    
+    // Direct ID mapping for exact control
+    const imageMap: { [key: string]: string } = {
+      // Your existing prediction IDs with perfect images
+      '1': 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&q=80', // Taylor Swift
+      '2': 'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=800&q=80', // Oppenheimer/Film
+      '3': 'https://images.unsplash.com/photo-1552820728-8b83bb6b773f?w=800&q=80', // GTA 6/Gaming
+      '4': 'https://images.unsplash.com/photo-1635863138275-d9b33299680b?w=800&q=80', // Marvel/Superhero
+      '5': 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&q=80', // Beyoncé
+      '6': 'https://images.unsplash.com/photo-1566479179817-0ddb5fa87cd9?w=800&q=80', // Super Bowl
+      '7': 'https://images.unsplash.com/photo-1560169897-fc0cdbdfa4d5?w=800&q=80', // Netflix/Stranger Things
+      '8': 'https://images.unsplash.com/photo-1571330735066-03aaa9429d89?w=800&q=80', // Drake/Hip Hop
+      '9': 'https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?w=800&q=80', // Bad Bunny/Coachella
+      '10': 'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=800&q=80', // K-pop
+      '11': 'https://images.unsplash.com/photo-1617137968427-85924c800a22?w=800&q=80', // Tom Holland/Celebrity
+      '12': 'https://images.unsplash.com/photo-1598387846419-a2c870ad3ecd?w=800&q=80', // The Weeknd/Grammy
+      '13': 'https://images.unsplash.com/photo-1597466765990-64ad1c35dafc?w=800&q=80', // Disney+
+      '14': 'https://images.unsplash.com/photo-1606924735276-fbb5b325e933?w=800&q=80', // Friends
+      '15': 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&q=80', // Rihanna - FIXED
+      '16': 'https://images.unsplash.com/photo-1596727147705-61a532a659bd?w=800&q=80', // James Bond
+      '17': 'https://images.unsplash.com/photo-1626278664285-f796b9ee7806?w=800&q=80', // Barbie
+      '18': 'https://images.unsplash.com/photo-1529636798458-92182e662485?w=800&q=80', // Travis & Taylor
+      '19': 'https://images.unsplash.com/photo-1611605698335-8b1569810432?w=800&q=80', // TikTok
+      '20': 'https://images.unsplash.com/photo-1524169358666-79f22534bc6e?w=800&q=80', // SNL
+    };
+
+    // Use the direct mapping first
+    if (imageMap[prediction.id]) {
+      console.log('Using mapped image for ID:', prediction.id);
+      return imageMap[prediction.id];
     }
-    lastTap.current = now;
+
+    // Fallback to title-based matching for any new predictions
+    const title = prediction.title.toLowerCase();
+    
+    // Specific keyword matching as backup
+    if (title.includes('rihanna')) {
+      return 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&q=80';
+    }
+    if (title.includes('beyoncé') || title.includes('beyonce')) {
+      return 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=800&q=80';
+    }
+    if (title.includes('taylor swift')) {
+      return 'https://images.unsplash.com/photo-1624091225789-30d6a58bfeef?w=800&q=80';
+    }
+    if (title.includes('oppenheimer')) {
+      return 'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=800&q=80';
+    }
+    if (title.includes('gta')) {
+      return 'https://images.unsplash.com/photo-1618193006865-38d47c7f8f07?w=800&q=80';
+    }
+    if (title.includes('spiderman') || title.includes('spider-man') || title.includes('marvel')) {
+      return 'https://images.unsplash.com/photo-1635863138275-d9b33299680b?w=800&q=80';
+    }
+    if (title.includes('drake')) {
+      return 'https://images.unsplash.com/photo-1571330735066-03aaa9429d89?w=800&q=80';
+    }
+    if (title.includes('netflix')) {
+      return 'https://images.unsplash.com/photo-1560169897-fc0cdbdfa4d5?w=800&q=80';
+    }
+    
+    // Use original image_url if provided and no errors
+    if (prediction.image_url && !imageError) {
+      return prediction.image_url;
+    }
+    
+    // Category fallbacks
+    const categoryImages: { [key: string]: string } = {
+      'Entertainment': 'https://images.unsplash.com/photo-1489599743784-10ac5c5ab5da?w=800&q=80',
+      'Music': 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&q=80',
+      'Movies': 'https://images.unsplash.com/photo-1635863138275-d9b33299680b?w=800&q=80',
+      'Gaming': 'https://images.unsplash.com/photo-1552820728-8b83bb6b773f?w=800&q=80',
+      'Sports': 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=800&q=80',
+      'Celebrity': 'https://images.unsplash.com/photo-1617137968427-85924c800a22?w=800&q=80',
+      'TV Shows': 'https://images.unsplash.com/photo-1524169358666-79f22534bc6e?w=800&q=80',
+      'Social Media': 'https://images.unsplash.com/photo-1611605698335-8b1569810432?w=800&q=80',
+    };
+    
+    return categoryImages[prediction.category] || 'https://images.unsplash.com/photo-1614028674026-a65e31bfd27c?w=800&q=80';
   };
 
-  const rotate = position.x.interpolate({
+  const triggerGreenFlash = () => {
+    console.log('Triggering green flash');
+    greenFlashAnimation.setValue(0);
+    Animated.sequence([
+      Animated.timing(greenFlashAnimation, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(greenFlashAnimation, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const triggerRedFlash = () => {
+    console.log('Triggering red flash');
+    redFlashAnimation.setValue(0);
+    Animated.sequence([
+      Animated.timing(redFlashAnimation, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(redFlashAnimation, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const rotate = pan.x.interpolate({
     inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
     outputRange: ['-10deg', '0deg', '10deg'],
     extrapolate: 'clamp',
   });
 
-  const rotateAndTranslate = {
-    transform: [
-      { rotate },
-      ...position.getTranslateTransform(),
-    ],
-  };
-
-  const likeOpacity = position.x.interpolate({
-    inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
-    outputRange: [0, 0, 1],
+  const yesOpacity = pan.x.interpolate({
+    inputRange: [0, 150],
+    outputRange: [0, 1],
     extrapolate: 'clamp',
   });
 
-  const nopeOpacity = position.x.interpolate({
-    inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
-    outputRange: [1, 0, 0],
+  const noOpacity = pan.x.interpolate({
+    inputRange: [-150, 0],
+    outputRange: [1, 0],
     extrapolate: 'clamp',
   });
 
-  const fadeInOutChoice = (choice: 'YES' | 'NO') => {
-    setCurrentChoice(choice);
-    Animated.sequence([
-      Animated.timing(swipeIndicatorOpacity, {
-        toValue: 1,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-      Animated.timing(swipeIndicatorOpacity, {
-        toValue: 0,
-        duration: 350,
-        useNativeDriver: true,
-      }),
-    ]).start(() => setCurrentChoice(null));
-  };
+  const skipOpacity = pan.y.interpolate({
+    inputRange: [-150, 0],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
+
+  const shimmerTranslate = shimmerAnimation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-SCREEN_WIDTH * 2, SCREEN_WIDTH * 2],
+  });
+
+  const greenFlashTranslate = greenFlashAnimation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [SCREEN_WIDTH, -SCREEN_WIDTH * 0.3],
+  });
+
+  const redFlashTranslate = redFlashAnimation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-SCREEN_WIDTH, SCREEN_WIDTH * 0.3],
+  });
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => isTop,
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        return isTop && (Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5);
-      },
-      onPanResponderMove: (_, gestureState) => {
-        if (isTop) {
-          position.setValue({ x: gestureState.dx, y: gestureState.dy });
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (!isTop) return;
-        
-        // Check for horizontal swipes first (stronger threshold)
-        if (Math.abs(gestureState.dx) > Math.abs(gestureState.dy)) {
-          if (gestureState.dx > SWIPE_THRESHOLD) {
-            // Swipe right - YES
-            fadeInOutChoice('YES');
-            Animated.timing(position, {
-              toValue: { x: SCREEN_WIDTH + 100, y: gestureState.dy },
-              duration: SWIPE_OUT_DURATION,
-              useNativeDriver: true,
-            }).start(() => {
-              onSwipeRight();
-              position.setValue({ x: 0, y: 0 });
-            });
-          } else if (gestureState.dx < -SWIPE_THRESHOLD) {
-            // Swipe left - NO
-            fadeInOutChoice('NO');
-            Animated.timing(position, {
-              toValue: { x: -SCREEN_WIDTH - 100, y: gestureState.dy },
-              duration: SWIPE_OUT_DURATION,
-              useNativeDriver: true,
-            }).start(() => {
-              onSwipeLeft();
-              position.setValue({ x: 0, y: 0 });
-            });
-          } else {
-            // Spring back
-            Animated.spring(position, {
-              toValue: { x: 0, y: 0 },
-              friction: 4,
-              useNativeDriver: true,
-            }).start();
-          }
-        } 
-        // Check for vertical swipes
-        else if (Math.abs(gestureState.dy) > SWIPE_THRESHOLD / 2) {
-          if (gestureState.dy < -SWIPE_THRESHOLD / 2 && onSwipeUp) {
-            // Swipe up - Skip/Next
-            Animated.timing(position, {
-              toValue: { x: gestureState.dx, y: -SCREEN_HEIGHT },
-              duration: SWIPE_OUT_DURATION,
-              useNativeDriver: true,
-            }).start(() => {
-              onSwipeUp();
-              position.setValue({ x: 0, y: 0 });
-            });
-          } else if (gestureState.dy > SWIPE_THRESHOLD / 2 && onSwipeDown) {
-            // Swipe down - Previous
-            Animated.timing(position, {
-              toValue: { x: gestureState.dx, y: SCREEN_HEIGHT },
-              duration: SWIPE_OUT_DURATION,
-              useNativeDriver: true,
-            }).start(() => {
-              onSwipeDown();
-              position.setValue({ x: 0, y: 0 });
-            });
-          } else {
-            // Spring back
-            Animated.spring(position, {
-              toValue: { x: 0, y: 0 },
-              friction: 4,
-              useNativeDriver: true,
-            }).start();
-          }
+      onMoveShouldSetPanResponder: () => isTop,
+      onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], {
+        useNativeDriver: false,
+      }),
+      onPanResponderRelease: (e, gestureState) => {
+        if (gestureState.dx > 120) {
+          // Swipe right - YES
+          triggerGreenFlash();
+          Animated.spring(pan, {
+            toValue: { x: SCREEN_WIDTH + 100, y: gestureState.dy },
+            useNativeDriver: false,
+          }).start(() => {
+            onSwipeRight();
+            pan.setValue({ x: 0, y: 0 });
+          });
+        } else if (gestureState.dx < -120) {
+          // Swipe left - NO
+          triggerRedFlash();
+          Animated.spring(pan, {
+            toValue: { x: -SCREEN_WIDTH - 100, y: gestureState.dy },
+            useNativeDriver: false,
+          }).start(() => {
+            onSwipeLeft();
+            pan.setValue({ x: 0, y: 0 });
+          });
+        } else if (gestureState.dy < -120) {
+          // Swipe up - SKIP
+          Animated.spring(pan, {
+            toValue: { x: gestureState.dx, y: -SCREEN_HEIGHT },
+            useNativeDriver: false,
+          }).start(() => {
+            onSwipeUp();
+            pan.setValue({ x: 0, y: 0 });
+          });
+        } else if (gestureState.dy > 120) {
+          // Swipe down - PREVIOUS
+          Animated.spring(pan, {
+            toValue: { x: gestureState.dx, y: SCREEN_HEIGHT },
+            useNativeDriver: false,
+          }).start(() => {
+            onSwipeDown();
+            pan.setValue({ x: 0, y: 0 });
+          });
         } else {
           // Spring back to center
-          Animated.spring(position, {
+          Animated.spring(pan, {
             toValue: { x: 0, y: 0 },
             friction: 4,
-            useNativeDriver: true,
+            useNativeDriver: false,
           }).start();
         }
       },
     })
   ).current;
 
+  // Preload image when component mounts
+  useEffect(() => {
+    const imageUri = getDemoImage(prediction);
+    const img = Image.prefetch(imageUri)
+      .then(() => {
+        setImageLoaded(true);
+        console.log('Image preloaded successfully:', imageUri);
+      })
+      .catch((error) => {
+        console.log('Image preload failed:', error);
+        setImageError(true);
+      });
+  }, [prediction.id]);
+
+  if (!isTop) {
+    return (
+      <View style={[styles.card, styles.cardBehind]}>
+        <LinearGradient
+          colors={['#1C1C1E', '#2C2C2E']}
+          style={StyleSheet.absoluteFillObject}
+        />
+      </View>
+    );
+  }
+
+  const imageUri = getDemoImage(prediction);
+
   return (
     <Animated.View
-      style={[styles.card, rotateAndTranslate]}
       {...panResponder.panHandlers}
-    >
-      <TouchableWithoutFeedback onPress={handleCardPress}>
-        <View style={styles.cardContent}>
-          {/* Glossy overlay for fresh card pack feel */}
-          <LinearGradient
-            colors={['rgba(255,255,255,0.15)', 'rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)', 'transparent']}
-            style={styles.glossOverlay}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0.6, y: 0.6 }}
-          />
-          
-          {/* Shimmer effect for extra gloss */}
-          <LinearGradient
-            colors={['transparent', 'rgba(255,255,255,0.05)', 'transparent']}
-            style={styles.shimmerOverlay}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          />
+      style={[
+        styles.card,
+        {
+          transform: [
+            { translateX: pan.x },
+            { translateY: pan.y },
+            { rotate: rotate },
+          ],
+        },
+      ]}>
+      
+      {/* Background gradient for glossy effect */}
+      <LinearGradient
+        colors={['#1A1A1C', '#0A0A0B']}
+        style={StyleSheet.absoluteFillObject}
+      />
 
-          {/* Left red gradient - NO */}
-          <LinearGradient
-            colors={['rgba(239, 68, 68, 0.4)', 'transparent']}
-            style={styles.leftGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-          />
-
-          {/* Right green gradient - YES */}
-          <LinearGradient
-            colors={['transparent', 'rgba(34, 197, 94, 0.4)']}
-            style={styles.rightGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-          />
-
-          {/* Dynamic swipe indicators */}
-          <Animated.View
-            style={[
-              styles.likeTextContainer,
-              { opacity: likeOpacity },
-            ]}
-          >
-            <Text style={styles.likeText}>YES</Text>
-          </Animated.View>
-
-          <Animated.View
-            style={[
-              styles.nopeTextContainer,
-              { opacity: nopeOpacity },
-            ]}
-          >
-            <Text style={styles.nopeText}>NO</Text>
-          </Animated.View>
-
-          {/* Swipe confirmation indicator */}
-          {currentChoice && (
-            <Animated.View
-              style={[
-                styles.swipeIndicator,
-                { opacity: swipeIndicatorOpacity },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.swipeIndicatorText,
-                  { color: currentChoice === 'YES' ? '#22C55E' : '#EF4444' },
-                ]}
-              >
-                {currentChoice}
-              </Text>
-            </Animated.View>
-          )}
-
-          {/* Main image */}
-          <Image
-            source={{ uri: imageUrl }}
-            style={styles.image}
-            resizeMode="cover"
-            onLoad={() => setImageLoaded(true)}
-            onError={handleImageError}
-            defaultSource={{ uri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' }}
-          />
-
-          {/* Loading placeholder */}
-          {!imageLoaded && (
-            <View style={styles.imagePlaceholder}>
-              <Text style={styles.loadingText}>Loading...</Text>
-            </View>
-          )}
-
-          {/* Info section with blur background - bottom area */}
-          <View style={styles.infoSection}>
-            {Platform.OS === 'ios' ? (
-              <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
-            ) : (
-              <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.85)' }]} />
-            )}
-            
-            <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.4)']}
-              style={StyleSheet.absoluteFill}
-            />
-            
-            <View style={styles.infoContainer}>
-              <View style={styles.categoryBox}>
-                <Text style={styles.categoryText}>{prediction.category.toUpperCase()}</Text>
-              </View>
-              
-              <View style={styles.titleBox}>
-                <Text style={styles.titleText} numberOfLines={2}>
-                  {prediction.title}
-                </Text>
-              </View>
-
-              {/* Yes/No prices - positioned higher */}
-              <View style={styles.priceContainer}>
-                <View style={styles.priceBox}>
-                  <Text style={styles.noText}>NO</Text>
-                  <Text style={styles.priceText}>{prediction.no_price}%</Text>
-                </View>
-                <View style={styles.priceBox}>
-                  <Text style={styles.yesText}>YES</Text>
-                  <Text style={styles.priceText}>{prediction.yes_price}%</Text>
-                </View>
-              </View>
-            </View>
+      {/* Image with overlay */}
+      <View style={styles.imageContainer}>
+        <Image
+          source={{ uri: imageUri }}
+          style={styles.image}
+          resizeMode="cover"
+          onLoad={() => setImageLoaded(true)}
+          onError={() => setImageError(true)}
+        />
+        
+        {/* Loading placeholder */}
+        {!imageLoaded && (
+          <View style={styles.imagePlaceholder}>
+            <Text style={styles.placeholderText}>Loading...</Text>
           </View>
+        )}
+        
+        {/* Glossy overlay */}
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.8)']}
+          style={styles.imageOverlay}
+        />
 
-          {/* Like heart indicator (shows on double tap then disappears) */}
-          {isLiked && (
-            <Animated.View
-              style={[
-                styles.likedHeart,
-                { opacity: swipeIndicatorOpacity }
-              ]}
-            >
-              <View style={styles.heartContainer}>
-                <View style={[styles.heart, { backgroundColor: tokens.colors.primary }]} />
-                <View style={[styles.heartLeft, { backgroundColor: tokens.colors.primary }]} />
-                <View style={[styles.heartRight, { backgroundColor: tokens.colors.primary }]} />
-              </View>
-            </Animated.View>
-          )}
+        {/* Shimmer effect for glossiness */}
+        <Animated.View
+          style={[
+            styles.shimmer,
+            {
+              transform: [{ translateX: shimmerTranslate }],
+            },
+          ]}
+        >
+          <LinearGradient
+            colors={[
+              'transparent',
+              'rgba(255, 255, 255, 0.1)',
+              'rgba(255, 255, 255, 0.2)',
+              'rgba(255, 255, 255, 0.1)',
+              'transparent',
+            ]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.shimmerGradient}
+          />
+        </Animated.View>
+      </View>
+
+      {/* Green Flash Animation (YES) */}
+      <Animated.View
+        style={[
+          styles.swipeFlash,
+          {
+            opacity: greenFlashAnimation,
+            transform: [{ translateX: greenFlashTranslate }],
+          },
+        ]}
+      >
+        <LinearGradient
+          colors={['transparent', 'rgba(52, 199, 89, 0.6)', 'rgba(52, 199, 89, 0.8)', 'rgba(52, 199, 89, 0.6)', 'transparent']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.flashGradient}
+        />
+      </Animated.View>
+
+      {/* Red Flash Animation (NO) */}
+      <Animated.View
+        style={[
+          styles.swipeFlash,
+          {
+            opacity: redFlashAnimation,
+            transform: [{ translateX: redFlashTranslate }],
+          },
+        ]}
+      >
+        <LinearGradient
+          colors={['transparent', 'rgba(255, 59, 48, 0.6)', 'rgba(255, 59, 48, 0.8)', 'rgba(255, 59, 48, 0.6)', 'transparent']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.flashGradient}
+        />
+      </Animated.View>
+
+      {/* Content */}
+      <View style={styles.content}>
+        {/* Category badge */}
+        <View style={styles.categoryContainer}>
+          <LinearGradient
+            colors={['#00D4FF', '#0099CC']}
+            style={styles.categoryGradient}
+          >
+            <Text style={styles.category}>{prediction.category.toUpperCase()}</Text>
+          </LinearGradient>
         </View>
-      </TouchableWithoutFeedback>
+
+        {/* Question */}
+        <Text style={styles.question}>{prediction.title}</Text>
+
+        {/* Odds display */}
+        <View style={styles.oddsContainer}>
+          <View style={styles.oddItem}>
+            <Text style={styles.oddLabel}>NO</Text>
+            <LinearGradient
+              colors={['#FF3B30', '#E63329']}
+              style={styles.oddValueContainer}
+            >
+              <Text style={styles.oddValue}>{prediction.no_price}%</Text>
+            </LinearGradient>
+          </View>
+          
+          <View style={styles.oddsDivider} />
+          
+          <View style={styles.oddItem}>
+            <Text style={styles.oddLabel}>YES</Text>
+            <LinearGradient
+              colors={['#34C759', '#30B350']}
+              style={styles.oddValueContainer}
+            >
+              <Text style={styles.oddValue}>{prediction.yes_price}%</Text>
+            </LinearGradient>
+          </View>
+        </View>
+
+        {/* End date */}
+        <View style={styles.endDateContainer}>
+          <Text style={styles.endDateLabel}>Closes</Text>
+          <Text style={styles.endDate}>
+            {new Date(prediction.end_date).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric'
+            })}
+          </Text>
+        </View>
+      </View>
+
+      {/* Swipe indicators */}
+      <Animated.View style={[styles.choiceContainer, styles.yesChoice, { opacity: yesOpacity }]}>
+        <Text style={styles.choiceText}>YES</Text>
+      </Animated.View>
+
+      <Animated.View style={[styles.choiceContainer, styles.noChoice, { opacity: noOpacity }]}>
+        <Text style={styles.choiceText}>NO</Text>
+      </Animated.View>
+
+      <Animated.View style={[styles.choiceContainer, styles.skipChoice, { opacity: skipOpacity }]}>
+        <Text style={styles.choiceText}>SKIP</Text>
+      </Animated.View>
+
+      {/* Glass effect border */}
+      <View style={styles.glassBorder} />
     </Animated.View>
   );
 };
@@ -468,109 +489,52 @@ export const SwipeableCard: React.FC<SwipeableCardProps> = ({
 const styles = StyleSheet.create({
   card: {
     position: 'absolute',
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
-    backgroundColor: tokens.colors.surface,
-    shadowColor: tokens.colors.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
+    width: SCREEN_WIDTH - 20,
+    height: SCREEN_HEIGHT * 0.78,
+    borderRadius: 24,
+    backgroundColor: '#1C1C1E',
+    shadowColor: '#00D4FF',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
     elevation: 10,
     overflow: 'hidden',
   },
-  cardContent: {
-    flex: 1,
-    position: 'relative',
+  cardBehind: {
+    transform: [{ scale: 0.95 }],
   },
-  glossOverlay: {
+  glassBorder: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    height: '100%',
+    bottom: 0,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(79, 195, 247, 0.3)',
+    pointerEvents: 'none',
+  },
+  swipeFlash: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: SCREEN_WIDTH * 1.5,
+    pointerEvents: 'none',
     zIndex: 10,
-    pointerEvents: 'none',
   },
-  shimmerOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: -100,
-    right: -100,
-    height: '100%',
-    zIndex: 11,
-    pointerEvents: 'none',
-    transform: [{ rotate: '30deg' }],
+  flashGradient: {
+    flex: 1,
+    width: '100%',
   },
-  leftGradient: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: '20%',
-    zIndex: 5,
-    pointerEvents: 'none',
-  },
-  rightGradient: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: '20%',
-    zIndex: 5,
-    pointerEvents: 'none',
-  },
-  likeTextContainer: {
-    position: 'absolute',
-    top: 100,
-    right: 40,
-    transform: [{ rotate: '30deg' }],
-    zIndex: 20,
-  },
-  likeText: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#22C55E',
-    borderWidth: 3,
-    borderColor: '#22C55E',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  nopeTextContainer: {
-    position: 'absolute',
-    top: 100,
-    left: 40,
-    transform: [{ rotate: '-30deg' }],
-    zIndex: 20,
-  },
-  nopeText: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#EF4444',
-    borderWidth: 3,
-    borderColor: '#EF4444',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  swipeIndicator: {
-    position: 'absolute',
-    top: '45%',
-    left: '50%',
-    transform: [{ translateX: -50 }, { translateY: -50 }],
-    zIndex: 25,
-  },
-  swipeIndicatorText: {
-    fontSize: 64,
-    fontWeight: 'bold',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 4 },
-    textShadowRadius: 10,
+  imageContainer: {
+    height: '55%',
+    width: '100%',
+    overflow: 'hidden',
+    position: 'relative',
   },
   image: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#0a0a0a',
   },
   imagePlaceholder: {
     position: 'absolute',
@@ -578,111 +542,140 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: 'rgba(28, 28, 30, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loadingText: {
-    color: tokens.colors.textSecondary,
+  placeholderText: {
+    color: '#888',
     fontSize: 16,
+    fontWeight: '500',
   },
-  infoSection: {
+  imageOverlay: {
     position: 'absolute',
-    bottom: 80, // Moved up to avoid being cut off
+    bottom: 0,
     left: 0,
     right: 0,
-    height: 200, // Fixed height
-    overflow: 'hidden',
+    height: '50%',
   },
-  infoContainer: {
+  shimmer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  shimmerGradient: {
+    width: SCREEN_WIDTH * 2,
+    height: '100%',
+  },
+  content: {
     flex: 1,
-    padding: 24,
-    justifyContent: 'flex-end',
-  },
-  categoryBox: {
-    backgroundColor: tokens.colors.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: tokens.radius.md,
-    alignSelf: 'flex-start',
-    marginBottom: 12,
-  },
-  categoryText: {
-    color: tokens.colors.background,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  titleBox: {
-    marginBottom: 20,
-  },
-  titleText: {
-    color: tokens.colors.color,
-    fontSize: 22,
-    fontWeight: '600',
-    lineHeight: 28,
-  },
-  priceContainer: {
-    flexDirection: 'row',
+    padding: 20,
     justifyContent: 'space-between',
   },
-  priceBox: {
+  categoryContainer: {
+    alignSelf: 'flex-start',
+    borderRadius: 20,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  categoryGradient: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  category: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  question: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    lineHeight: 28,
+    marginBottom: 20,
+  },
+  oddsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'center',
+    marginBottom: 16,
   },
-  yesText: {
-    color: '#22C55E',
-    fontSize: 26,
-    fontWeight: 'bold',
+  oddItem: {
+    flex: 1,
+    alignItems: 'center',
   },
-  noText: {
-    color: '#EF4444',
-    fontSize: 26,
-    fontWeight: 'bold',
-  },
-  priceText: {
-    color: tokens.colors.color,
-    fontSize: 26,
+  oddLabel: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginBottom: 8,
     fontWeight: '600',
   },
-  likedHeart: {
-    position: 'absolute',
-    top: '45%',
-    left: '50%',
-    transform: [{ translateX: -32 }, { translateY: -32 }],
-    zIndex: 30,
+  oddValueContainer: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 20,
   },
-  heartContainer: {
-    width: 64,
-    height: 64,
-    position: 'relative',
+  oddValue: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
-  heart: {
-    position: 'absolute',
-    width: 50,
-    height: 45,
-    left: 7,
-    top: 15,
-    transform: [{ rotate: '-45deg' }],
-    borderRadius: 25,
+  oddsDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginHorizontal: 16,
   },
-  heartLeft: {
-    position: 'absolute',
-    width: 26,
-    height: 26,
-    left: 5,
-    top: 5,
-    borderRadius: 13,
+  endDateContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
   },
-  heartRight: {
+  endDateLabel: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontWeight: '600',
+  },
+  endDate: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontWeight: '700',
+  },
+  choiceContainer: {
     position: 'absolute',
-    width: 26,
-    height: 26,
-    right: 5,
-    top: 5,
-    borderRadius: 13,
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 4,
+  },
+  yesChoice: {
+    top: '40%',
+    right: 20,
+    backgroundColor: 'rgba(52, 199, 89, 0.2)',
+    borderColor: '#34C759',
+  },
+  noChoice: {
+    top: '40%',
+    left: 20,
+    backgroundColor: 'rgba(255, 59, 48, 0.2)',
+    borderColor: '#FF3B30',
+  },
+  skipChoice: {
+    top: 20,
+    alignSelf: 'center',
+    left: SCREEN_WIDTH / 2 - 60,
+    backgroundColor: 'rgba(142, 142, 147, 0.2)',
+    borderColor: '#8E8E93',
+  },
+  choiceText: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#FFFFFF',
   },
 });
 
 export default SwipeableCard;
+

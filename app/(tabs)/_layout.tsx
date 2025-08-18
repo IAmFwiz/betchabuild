@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
-import { Home, Inbox, Activity, Trophy } from 'lucide-react-native';
-import { Image, View } from 'react-native';
+import { Home, Inbox, Trophy } from 'lucide-react-native';
+import { Image, View, Text } from 'react-native';
 
 export default function TabLayout() {
   return (
@@ -37,8 +37,47 @@ export default function TabLayout() {
       <Tabs.Screen
         name="activity"
         options={{
-          title: 'Activity',
-          tabBarIcon: ({ color, size }) => <Activity size={size} color={color} />,
+          title: '',  // Remove the text label
+          tabBarIcon: ({ focused }) => {
+            try {
+              return (
+                <View style={{
+                  width: 50,  // Slightly reduced size
+                  height: 50,  // Slightly reduced size
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginTop: 0,  // Centered vertically - removed the lift
+                  backgroundColor: focused ? 'rgba(0, 212, 255, 0.1)' : 'transparent',
+                  borderRadius: 25,
+                }}>
+                  <Image 
+                    source={require('../../assets/b2-appicon.png')}
+                    style={{ 
+                      width: 40,  // Properly sized within container
+                      height: 40,
+                    }}
+                    resizeMode="contain"
+                    onError={() => console.log('Activity icon failed to load')}
+                  />
+                </View>
+              );
+            } catch (error) {
+              // Fallback if image doesn't exist
+              return (
+                <View style={{
+                  width: 50,
+                  height: 50,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginTop: 0,
+                  backgroundColor: focused ? '#00D4FF' : '#888',
+                  borderRadius: 25,
+                }}>
+                  <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold' }}>B</Text>
+                </View>
+              );
+            }
+          },
         }}
       />
       

@@ -1,0 +1,10 @@
+Backup created: Mon Aug 18 13:22:40 PDT 2025
+Working version v2 - betcha app with all recent improvements
+
+MAJOR IMPROVEMENTS:
+✅ Enhanced SwipeableCard component with glossy effects and shimmer
+✅ Improved index.tsx with 20 high-quality predictions and keywords
+✅ Complete imageService with curated Unsplash images for all categories
+✅ Fixed YES/NO positioning in SwipeableCard (left=NO, right=YES)
+✅ Smart credits formatting (10k instead of 10,000) to prevent screen cutoff
+✅ Enhanced user experience with better swipe mechanics and visual feedback
